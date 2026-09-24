@@ -89,8 +89,17 @@ pdm build
 `pip wheel .` and `pdm build` use isolated build environments. CPPython handles this by:
 
 1. Verifying C++ dependencies were installed beforehand with `cppython install`
+   (or installing them when building from an sdist, see below)
 2. Reading provider artifacts from `install-path` (outside isolation)
 3. Passing absolute toolchain paths to scikit-build-core
+
+### Building from an sdist
+
+A wheel built from a source distribution runs in a freshly extracted directory, where no manual
+`cppython install` is possible. When the source root contains `PKG-INFO` (the marker of an
+extracted sdist), missing native dependencies are installed through the provider during the build.
+The build tree is still never configured. Builds from a source checkout always require an explicit
+`cppython install`.
 
 ### Caching Dependencies
 
@@ -129,12 +138,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
-      - name: Install build dependencies
-        run: pip install build
+      - name: Install build tools
+        run: pip install build "cppython[conan,cmake]"
 
-      - name: Build wheel
+      - name: Install native dependencies
+        run: cppython install
+
+      - name: Build sdist and wheel
         run: python -m build
 
       - name: Upload wheel
@@ -143,6 +155,10 @@ jobs:
           name: wheel
           path: dist/*.whl
 ```
+
+`python -m build` builds the wheel from the generated sdist, which installs native dependencies
+inside the extracted tree. The explicit `cppython install` step keeps the checkout usable for
+`python -m build --wheel` and populates the shared `install-path` cache.
 
 ### Caching Conan Packages
 
@@ -158,21 +174,14 @@ jobs:
 
 ### cibuildwheel
 
-CPPython works with cibuildwheel for building wheels across platforms:
+CPPython works with cibuildwheel for building wheels across platforms. cibuildwheel builds from the
+project checkout, so install native dependencies before each build:
 
 ```toml
 # pyproject.toml
 [tool.cibuildwheel]
 build-verbosity = 1
-
-[tool.cibuildwheel.linux]
-before-all = "pip install conan && conan profile detect"
-
-[tool.cibuildwheel.macos]
-before-all = "pip install conan && conan profile detect"
-
-[tool.cibuildwheel.windows]
-before-all = "pip install conan && conan profile detect"
+before-build = "pip install \"cppython[conan,cmake]\" && cppython install"
 ```
 
 ## Editable Installs

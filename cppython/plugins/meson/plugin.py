@@ -20,7 +20,7 @@ from cppython.plugins.meson.resolution import resolve_meson_data
 from cppython.plugins.meson.schema import MesonSyncData
 from cppython.utility.subprocess import run_subprocess
 
-logger = getLogger("cppython.meson")
+logger = getLogger('cppython.meson')
 
 
 class MesonGenerator(Generator):
@@ -38,9 +38,7 @@ class MesonGenerator(Generator):
         self.data = resolve_meson_data(data, core_data)
         self.builder = Builder()
 
-        self._cppython_meson_directory = (
-            self.core_data.cppython_data.tool_path / "cppython" / "meson"
-        )
+        self._cppython_meson_directory = self.core_data.cppython_data.tool_path / 'cppython' / 'meson'
 
         # Track injected native/cross files for use in meson setup
         self._native_file: Path | None = None
@@ -96,7 +94,7 @@ class MesonGenerator(Generator):
                     self._cppython_meson_directory, sync_data, project_root
                 )
             case _:
-                raise ValueError("Unsupported sync data type")
+                raise ValueError('Unsupported sync data type')
 
     def _meson_command(self) -> str:
         """Returns the meson command to use.
@@ -106,7 +104,7 @@ class MesonGenerator(Generator):
         """
         if self.data.meson_binary:
             return str(self.data.meson_binary)
-        return "meson"
+        return 'meson'
 
     def _build_dir(self) -> Path:
         """Returns the absolute path to the meson build directory.
@@ -125,18 +123,18 @@ class MesonGenerator(Generator):
         build_dir = self._effective_build_dir(configuration)
         source_dir = self.data.build_file.parent
 
-        cmd = [self._meson_command(), "setup"]
+        cmd = [self._meson_command(), 'setup']
 
         # Add native file if available
         if self._native_file and self._native_file.exists():
-            cmd.extend(["--native-file", str(self._native_file)])
+            cmd.extend(['--native-file', str(self._native_file)])
 
         # Add cross file if available
         if self._cross_file and self._cross_file.exists():
-            cmd.extend(["--cross-file", str(self._cross_file)])
+            cmd.extend(['--cross-file', str(self._cross_file)])
 
         if build_dir.exists():
-            cmd.append("--reconfigure")
+            cmd.append('--reconfigure')
 
         cmd.extend([str(build_dir), str(source_dir)])
 
@@ -163,7 +161,7 @@ class MesonGenerator(Generator):
         """
         self._ensure_setup(configuration)
         build_dir = self._effective_build_dir(configuration)
-        cmd = [self._meson_command(), "compile", "-C", str(build_dir)]
+        cmd = [self._meson_command(), 'compile', '-C', str(build_dir)]
         run_subprocess(cmd, cwd=self.data.build_file.parent, logger=logger)
 
     def configure(self, configuration: str | None = None) -> None:
@@ -181,7 +179,7 @@ class MesonGenerator(Generator):
             configuration: Optional build directory name override.
         """
         build_dir = self._effective_build_dir(configuration)
-        cmd = [self._meson_command(), "test", "-C", str(build_dir)]
+        cmd = [self._meson_command(), 'test', '-C', str(build_dir)]
         run_subprocess(cmd, cwd=self.data.build_file.parent, logger=logger)
 
     def bench(self, configuration: str | None = None) -> None:
@@ -191,7 +189,7 @@ class MesonGenerator(Generator):
             configuration: Optional build directory name override.
         """
         build_dir = self._effective_build_dir(configuration)
-        cmd = [self._meson_command(), "test", "--benchmark", "-C", str(build_dir)]
+        cmd = [self._meson_command(), 'test', '--benchmark', '-C', str(build_dir)]
         run_subprocess(cmd, cwd=self.data.build_file.parent, logger=logger)
 
     def run(self, target: str, configuration: str | None = None) -> None:
@@ -209,20 +207,14 @@ class MesonGenerator(Generator):
         build_dir = self._effective_build_dir(configuration)
 
         # Search for the executable in the build directory
-        candidates = list(build_dir.rglob(target)) + list(
-            build_dir.rglob(f"{target}.exe")
-        )
+        candidates = list(build_dir.rglob(target)) + list(build_dir.rglob(f'{target}.exe'))
         executables = [c for c in candidates if c.is_file()]
 
         if not executables:
-            raise FileNotFoundError(
-                f"Could not find executable '{target}' in build directory: {build_dir}"
-            )
+            raise FileNotFoundError(f"Could not find executable '{target}' in build directory: {build_dir}")
 
         executable = executables[0]
-        run_subprocess(
-            [str(executable)], cwd=self.data.build_file.parent, logger=logger
-        )
+        run_subprocess([str(executable)], cwd=self.data.build_file.parent, logger=logger)
 
     def list_targets(self) -> list[str]:
         """Lists discovered build targets/executables in the Meson build directory.
@@ -238,10 +230,8 @@ class MesonGenerator(Generator):
             return []
 
         targets: set[str] = set()
-        for candidate in build_dir.rglob("*"):
-            if candidate.is_file() and (
-                candidate.stat().st_mode & 0o111 or candidate.suffix == ".exe"
-            ):
+        for candidate in build_dir.rglob('*'):
+            if candidate.is_file() and (candidate.stat().st_mode & 0o111 or candidate.suffix == '.exe'):
                 targets.add(candidate.stem)
 
         return sorted(targets)

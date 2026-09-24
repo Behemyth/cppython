@@ -1,12 +1,14 @@
 """Tests the Project type"""
 
 import logging
+import tomllib
 from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 import pytest
-import tomllib
+from pytest_mock import MockerFixture
+
 from cppython.core.schema import (
     CPPythonLocalConfiguration,
     PEP621Configuration,
@@ -19,9 +21,8 @@ from cppython.test.mock.generator import MockGenerator
 from cppython.test.mock.provider import MockProvider
 from cppython.test.mock.scm import MockSCM
 from cppython.utility.exception import InstallationVerificationError
-from pytest_mock import MockerFixture
 
-pep621 = PEP621Configuration(name="test-project", version="0.1.0")
+pep621 = PEP621Configuration(name='test-project', version='0.1.0')
 
 
 class TestProject:
@@ -35,21 +36,17 @@ class TestProject:
             request: The pytest request fixture
         """
         # Use the CPPython directory as the test data
-        file = request.config.rootpath / "pyproject.toml"
-        project_configuration = ProjectConfiguration(
-            project_root=file.parent, version=None
-        )
+        file = request.config.rootpath / 'pyproject.toml'
+        project_configuration = ProjectConfiguration(project_root=file.parent, version=None)
 
-        pyproject_data = tomllib.loads(file.read_text(encoding="utf-8"))
+        pyproject_data = tomllib.loads(file.read_text(encoding='utf-8'))
         project = Project(project_configuration, pyproject_data)
 
         # Doesn't have the cppython table
         assert not project.enabled
 
     @staticmethod
-    def test_missing_tool_table_raw_dict(
-        tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_missing_tool_table_raw_dict(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Constructing Project with a raw dict lacking tool.cppython should produce zero log output.
 
         This simulates input from a host tool like PDM that passes raw pyproject data
@@ -59,14 +56,10 @@ class TestProject:
             tmp_path: Temporary directory for dummy data
             caplog: Pytest fixture for capturing logs
         """
-        project_configuration = ProjectConfiguration(
-            project_root=tmp_path, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=tmp_path, version=None)
 
         # Raw dict as PDM would provide — no tool table at all
-        raw_data: dict[str, Any] = {
-            "project": {"name": "some-other-project", "version": "1.0.0"}
-        }
+        raw_data: dict[str, Any] = {'project': {'name': 'some-other-project', 'version': '1.0.0'}}
 
         with caplog.at_level(logging.DEBUG):
             project = Project(project_configuration, raw_data)
@@ -77,30 +70,24 @@ class TestProject:
         assert not project.enabled
 
     @staticmethod
-    def test_missing_tool_table(
-        tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_missing_tool_table(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """The project type should be constructable without the tool table
 
         Args:
             tmp_path: Temporary directory for dummy data
             caplog: Pytest fixture for capturing logs
         """
-        file_path = tmp_path / "pyproject.toml"
+        file_path = tmp_path / 'pyproject.toml'
 
-        with open(file_path, "a", encoding="utf8"):
+        with open(file_path, 'a', encoding='utf8'):
             pass
 
-        project_configuration = ProjectConfiguration(
-            project_root=file_path.parent, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=file_path.parent, version=None)
 
         pyproject = PyProject(project=pep621)
 
         with caplog.at_level(logging.WARNING):
-            project = Project(
-                project_configuration, pyproject.model_dump(by_alias=True)
-            )
+            project = Project(project_configuration, pyproject.model_dump(by_alias=True))
 
         # We don't want to have the log of the calling tool polluted with any default logging
         assert len(caplog.records) == 0
@@ -108,31 +95,25 @@ class TestProject:
         assert not project.enabled
 
     @staticmethod
-    def test_missing_cppython_table(
-        tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_missing_cppython_table(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """The project type should be constructable without the cppython table
 
         Args:
             tmp_path: Temporary directory for dummy data
             caplog: Pytest fixture for capturing logs
         """
-        file_path = tmp_path / "pyproject.toml"
+        file_path = tmp_path / 'pyproject.toml'
 
-        with open(file_path, "a", encoding="utf8"):
+        with open(file_path, 'a', encoding='utf8'):
             pass
 
-        project_configuration = ProjectConfiguration(
-            project_root=file_path.parent, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=file_path.parent, version=None)
 
         tool_data = ToolData()
         pyproject = PyProject(project=pep621, tool=tool_data)
 
         with caplog.at_level(logging.WARNING):
-            project = Project(
-                project_configuration, pyproject.model_dump(by_alias=True)
-            )
+            project = Project(project_configuration, pyproject.model_dump(by_alias=True))
 
         # We don't want to have the log of the calling tool polluted with any default logging
         assert len(caplog.records) == 0
@@ -140,9 +121,7 @@ class TestProject:
         assert not project.enabled
 
     @staticmethod
-    def test_default_cppython_table(
-        tmp_path: Path, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_default_cppython_table(tmp_path: Path, mocker: MockerFixture, caplog: pytest.LogCaptureFixture) -> None:
         """The project type should be constructable with the default cppython table
 
         Args:
@@ -153,32 +132,28 @@ class TestProject:
         # Insert ourself into the builder and load the mock plugins by returning them directly in the expected order
         #   they will be built
         mocker.patch(
-            "cppython.builder.entry_points",
-            return_value=[metadata.EntryPoint(name="mock", value="mock", group="mock")],
+            'cppython.builder.entry_points',
+            return_value=[metadata.EntryPoint(name='mock', value='mock', group='mock')],
         )
         mocker.patch.object(
             metadata.EntryPoint,
-            "load",
+            'load',
             side_effect=[MockGenerator, MockProvider, MockSCM],
         )
 
-        file_path = tmp_path / "pyproject.toml"
+        file_path = tmp_path / 'pyproject.toml'
 
-        with open(file_path, "a", encoding="utf8"):
+        with open(file_path, 'a', encoding='utf8'):
             pass
 
-        project_configuration = ProjectConfiguration(
-            project_root=file_path.parent, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=file_path.parent, version=None)
 
         cppython_config = CPPythonLocalConfiguration()
         tool_data = ToolData(cppython=cppython_config)
         pyproject = PyProject(project=pep621, tool=tool_data)
 
         with caplog.at_level(logging.WARNING):
-            project = Project(
-                project_configuration, pyproject.model_dump(by_alias=True)
-            )
+            project = Project(project_configuration, pyproject.model_dump(by_alias=True))
 
         # We don't want to have the log of the calling tool polluted with any default logging
         assert len(caplog.records) == 0
@@ -201,22 +176,20 @@ class TestPrepareBuild:
             An enabled Project instance
         """
         mocker.patch(
-            "cppython.builder.entry_points",
-            return_value=[metadata.EntryPoint(name="mock", value="mock", group="mock")],
+            'cppython.builder.entry_points',
+            return_value=[metadata.EntryPoint(name='mock', value='mock', group='mock')],
         )
         mocker.patch.object(
             metadata.EntryPoint,
-            "load",
+            'load',
             side_effect=[MockGenerator, MockProvider, MockSCM],
         )
 
-        file_path = tmp_path / "pyproject.toml"
-        with open(file_path, "a", encoding="utf8"):
+        file_path = tmp_path / 'pyproject.toml'
+        with open(file_path, 'a', encoding='utf8'):
             pass
 
-        project_configuration = ProjectConfiguration(
-            project_root=file_path.parent, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=file_path.parent, version=None)
 
         cppython_config = CPPythonLocalConfiguration()
         tool_data = ToolData(cppython=cppython_config)
@@ -224,9 +197,7 @@ class TestPrepareBuild:
 
         return Project(project_configuration, pyproject.model_dump(by_alias=True))
 
-    def test_prepare_build_calls_sync_and_verify(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_prepare_build_calls_sync_and_verify(self, tmp_path: Path, mocker: MockerFixture) -> None:
         """prepare_build() should call sync and verify_installed, not install.
 
         Args:
@@ -237,11 +208,9 @@ class TestPrepareBuild:
         assert project.enabled
 
         # Spy on the key methods
-        sync_spy = mocker.patch.object(project._data, "sync")  # noqa: SLF001
-        verify_spy = mocker.patch.object(
-            project._data.plugins.provider, "verify_installed"
-        )  # noqa: SLF001
-        install_spy = mocker.patch.object(project._data.plugins.provider, "install")  # noqa: SLF001
+        sync_spy = mocker.patch.object(project._data, 'sync')  # noqa: SLF001
+        verify_spy = mocker.patch.object(project._data.plugins.provider, 'verify_installed')  # noqa: SLF001
+        install_spy = mocker.patch.object(project._data.plugins.provider, 'install')  # noqa: SLF001
 
         project.prepare_build()
 
@@ -255,13 +224,11 @@ class TestPrepareBuild:
         Args:
             tmp_path: Temporary directory
         """
-        file_path = tmp_path / "pyproject.toml"
-        with open(file_path, "a", encoding="utf8"):
+        file_path = tmp_path / 'pyproject.toml'
+        with open(file_path, 'a', encoding='utf8'):
             pass
 
-        project_configuration = ProjectConfiguration(
-            project_root=file_path.parent, version=None
-        )
+        project_configuration = ProjectConfiguration(project_root=file_path.parent, version=None)
 
         pyproject = PyProject(project=pep621)
         project = Project(project_configuration, pyproject.model_dump(by_alias=True))
@@ -269,9 +236,7 @@ class TestPrepareBuild:
         assert not project.enabled
         assert project.prepare_build() is None
 
-    def test_prepare_build_raises_on_missing_artifacts(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_prepare_build_raises_on_missing_artifacts(self, tmp_path: Path, mocker: MockerFixture) -> None:
         """prepare_build() should propagate InstallationVerificationError.
 
         Args:
@@ -282,60 +247,52 @@ class TestPrepareBuild:
         assert project.enabled
 
         # Make verify_installed raise
-        mocker.patch.object(project._data, "sync")  # noqa: SLF001
+        mocker.patch.object(project._data, 'sync')  # noqa: SLF001
         mocker.patch.object(
             project._data.plugins.provider,  # noqa: SLF001
-            "verify_installed",
-            side_effect=InstallationVerificationError("mock", ["test artifact"]),
+            'verify_installed',
+            side_effect=InstallationVerificationError('mock', ['test artifact']),
         )
 
-        with pytest.raises(InstallationVerificationError, match="mock"):
+        with pytest.raises(InstallationVerificationError, match='mock'):
             project.prepare_build()
 
-    def test_configure_syncs_verifies_then_configures(
-        self, tmp_path: Path, mocker: MockerFixture
-    ) -> None:
+    def test_configure_syncs_verifies_then_configures(self, tmp_path: Path, mocker: MockerFixture) -> None:
         """configure() should sync and verify dependencies before configuring."""
         project = self._create_enabled_project(tmp_path, mocker)
         events: list[str] = []
 
-        mocker.patch.object(
-            project._data, "sync", side_effect=lambda: events.append("sync")
-        )  # noqa: SLF001
+        mocker.patch.object(project._data, 'sync', side_effect=lambda: events.append('sync'))  # noqa: SLF001
         mocker.patch.object(
             project._data.plugins.provider,  # noqa: SLF001
-            "verify_installed",
-            side_effect=lambda: events.append("verify"),
+            'verify_installed',
+            side_effect=lambda: events.append('verify'),
         )
         configure_spy = mocker.patch.object(
             project._data.plugins.generator,  # noqa: SLF001
-            "configure",
-            side_effect=lambda configuration=None: events.append(
-                f"configure:{configuration}"
-            ),
+            'configure',
+            side_effect=lambda configuration=None: events.append(f'configure:{configuration}'),
         )
 
-        project.configure("dev")
+        project.configure('dev')
 
-        assert events == ["sync", "verify", "configure:dev"]
-        configure_spy.assert_called_once_with(configuration="dev")
+        assert events == ['sync', 'verify', 'configure:dev']
+        configure_spy.assert_called_once_with(configuration='dev')
 
     def test_configure_does_not_configure_when_artifacts_are_missing(
         self, tmp_path: Path, mocker: MockerFixture
     ) -> None:
         """configure() should propagate verification failures before invoking the generator."""
         project = self._create_enabled_project(tmp_path, mocker)
-        mocker.patch.object(project._data, "sync")  # noqa: SLF001
+        mocker.patch.object(project._data, 'sync')  # noqa: SLF001
         mocker.patch.object(
             project._data.plugins.provider,  # noqa: SLF001
-            "verify_installed",
-            side_effect=InstallationVerificationError("mock", ["test artifact"]),
+            'verify_installed',
+            side_effect=InstallationVerificationError('mock', ['test artifact']),
         )
-        configure_spy = mocker.patch.object(
-            project._data.plugins.generator, "configure"
-        )  # noqa: SLF001
+        configure_spy = mocker.patch.object(project._data.plugins.generator, 'configure')  # noqa: SLF001
 
-        with pytest.raises(InstallationVerificationError, match="mock"):
-            project.configure("dev")
+        with pytest.raises(InstallationVerificationError, match='mock'):
+            project.configure('dev')
 
         configure_spy.assert_not_called()

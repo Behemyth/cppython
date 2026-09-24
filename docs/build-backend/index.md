@@ -11,7 +11,7 @@ The `cppython.build` backend:
 3. Injects `CMAKE_TOOLCHAIN_FILE` into scikit-build-core
 4. Delegates the actual wheel building to scikit-build-core
 
-Build hooks do not install native dependencies or configure the standalone build tree. Run `cppython install` explicitly first.
+Build hooks do not configure the standalone build tree. In a source checkout they also do not install native dependencies; run `cppython install` explicitly first. Builds from an extracted sdist install missing native dependencies automatically.
 
 ## Quick Start
 

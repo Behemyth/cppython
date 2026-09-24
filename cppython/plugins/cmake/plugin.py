@@ -22,7 +22,7 @@ from cppython.plugins.cmake.schema import CMakeSyncData
 from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.subprocess import run_subprocess
 
-logger = getLogger("cppython.cmake")
+logger = getLogger('cppython.cmake')
 
 
 class CMakeGenerator(Generator):
@@ -40,10 +40,8 @@ class CMakeGenerator(Generator):
         self.data = resolve_cmake_data(data, core_data)
         self.builder = Builder()
 
-        self._cppython_preset_directory = (
-            self.core_data.cppython_data.tool_path / "cppython"
-        )
-        self._provider_directory = self._cppython_preset_directory / "providers"
+        self._cppython_preset_directory = self.core_data.cppython_data.tool_path / 'cppython'
+        self._provider_directory = self._cppython_preset_directory / 'providers'
 
     @staticmethod
     def features(directory: Path) -> SupportedFeatures:
@@ -82,7 +80,7 @@ class CMakeGenerator(Generator):
             case CMakeSyncData():
                 self._cppython_preset_directory.mkdir(parents=True, exist_ok=True)
 
-                cppython_preset_file = self._cppython_preset_directory / "CPPython.json"
+                cppython_preset_file = self._cppython_preset_directory / 'CPPython.json'
 
                 project_root = self.core_data.project_data.project_root
 
@@ -100,7 +98,7 @@ class CMakeGenerator(Generator):
                     self.core_data.cppython_data.build_path,
                 )
             case _:
-                raise ValueError("Unsupported sync data type")
+                raise ValueError('Unsupported sync data type')
 
     def _cmake_command(self) -> str:
         """Returns the cmake command to use.
@@ -110,7 +108,7 @@ class CMakeGenerator(Generator):
         """
         if self.data.cmake_binary:
             return str(self.data.cmake_binary)
-        return "cmake"
+        return 'cmake'
 
     def _ctest_command(self) -> str:
         """Returns the ctest command to use.
@@ -122,14 +120,14 @@ class CMakeGenerator(Generator):
         """
         if self.data.cmake_binary:
             # ctest is typically in the same directory as cmake
-            ctest_path = self.data.cmake_binary.parent / "ctest"
+            ctest_path = self.data.cmake_binary.parent / 'ctest'
             if ctest_path.exists():
                 return str(ctest_path)
             # Try with .exe on Windows
-            ctest_exe = self.data.cmake_binary.parent / "ctest.exe"
+            ctest_exe = self.data.cmake_binary.parent / 'ctest.exe'
             if ctest_exe.exists():
                 return str(ctest_exe)
-        return "ctest"
+        return 'ctest'
 
     def _resolve_configuration(self, configuration: str | None) -> str:
         """Resolves the effective CMake preset from CLI argument or default config.
@@ -146,7 +144,7 @@ class CMakeGenerator(Generator):
         effective = configuration or self.data.default_configuration
         if effective is None:
             raise ConfigurationRequiredError(
-                "CMake generator requires a configuration. "
+                'CMake generator requires a configuration. '
                 "Provide --configuration on the CLI or set 'default-configuration' in [tool.cppython.generators.cmake]."
             )
         return effective
@@ -158,7 +156,7 @@ class CMakeGenerator(Generator):
             configuration: Optional CMake preset name. Overrides default-configuration from config.
         """
         preset = self._resolve_configuration(configuration)
-        cmd = [self._cmake_command(), "--build", "--preset", preset]
+        cmd = [self._cmake_command(), '--build', '--preset', preset]
         run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def configure(self, configuration: str | None = None) -> None:
@@ -168,7 +166,7 @@ class CMakeGenerator(Generator):
             configuration: Optional CMake configure preset name.
         """
         preset = self._resolve_configuration(configuration)
-        cmd = [self._cmake_command(), "--preset", preset]
+        cmd = [self._cmake_command(), '--preset', preset]
         run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def test(self, configuration: str | None = None) -> None:
@@ -178,7 +176,7 @@ class CMakeGenerator(Generator):
             configuration: Optional CMake preset name. Overrides default-configuration from config.
         """
         preset = self._resolve_configuration(configuration)
-        cmd = [self._ctest_command(), "--preset", preset]
+        cmd = [self._ctest_command(), '--preset', preset]
         run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def bench(self, configuration: str | None = None) -> None:
@@ -188,7 +186,7 @@ class CMakeGenerator(Generator):
             configuration: Optional CMake preset name. Overrides default-configuration from config.
         """
         preset = self._resolve_configuration(configuration)
-        cmd = [self._ctest_command(), "--preset", preset]
+        cmd = [self._ctest_command(), '--preset', preset]
         run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def run(self, target: str, configuration: str | None = None) -> None:
@@ -206,20 +204,14 @@ class CMakeGenerator(Generator):
         build_path = self.core_data.cppython_data.build_path
 
         # Search for the executable in the build directory
-        candidates = list(build_path.rglob(target)) + list(
-            build_path.rglob(f"{target}.exe")
-        )
+        candidates = list(build_path.rglob(target)) + list(build_path.rglob(f'{target}.exe'))
         executables = [c for c in candidates if c.is_file()]
 
         if not executables:
-            raise FileNotFoundError(
-                f"Could not find executable '{target}' in build directory: {build_path}"
-            )
+            raise FileNotFoundError(f"Could not find executable '{target}' in build directory: {build_path}")
 
         executable = executables[0]
-        run_subprocess(
-            [str(executable)], cwd=self.data.preset_file.parent, logger=logger
-        )
+        run_subprocess([str(executable)], cwd=self.data.preset_file.parent, logger=logger)
 
     def list_targets(self) -> list[str]:
         """Lists discovered build targets/executables in the CMake build directory.
@@ -237,10 +229,8 @@ class CMakeGenerator(Generator):
 
         # Collect executable files from the build directory
         targets: set[str] = set()
-        for candidate in build_path.rglob("*"):
-            if candidate.is_file() and (
-                candidate.stat().st_mode & 0o111 or candidate.suffix == ".exe"
-            ):
+        for candidate in build_path.rglob('*'):
+            if candidate.is_file() and (candidate.stat().st_mode & 0o111 or candidate.suffix == '.exe'):
                 # Use the stem (name without extension) as the target name
                 targets.add(candidate.stem)
 
@@ -252,16 +242,16 @@ class CMakeGenerator(Generator):
         Returns:
             A :class:`PluginReport` with CMake-specific details.
         """
-        managed = [self._cppython_preset_directory / "CPPython.json"]
+        managed = [self._cppython_preset_directory / 'CPPython.json']
 
         config: dict[str, object] = {
-            "preset_file": str(self.data.preset_file),
-            "configuration_name": self.data.configuration_name,
+            'preset_file': str(self.data.preset_file),
+            'configuration_name': self.data.configuration_name,
         }
         if self.data.cmake_binary is not None:
-            config["cmake_binary"] = str(self.data.cmake_binary)
+            config['cmake_binary'] = str(self.data.cmake_binary)
         if self.data.default_configuration is not None:
-            config["default_configuration"] = self.data.default_configuration
+            config['default_configuration'] = self.data.default_configuration
 
         return PluginReport(
             configuration=config,

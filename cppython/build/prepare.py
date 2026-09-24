@@ -1,8 +1,9 @@
 """Build preparation utilities for CPPython.
 
 This module handles the pre-build workflow: syncing provider configuration,
-verifying that C++ dependencies are already installed, and extracting sync
-data for injection into the appropriate build backend.
+verifying that C++ dependencies are installed (installing them only when
+building from an sdist), and extracting sync data for injection into the
+appropriate build backend.
 """
 
 import logging
@@ -15,6 +16,7 @@ from rich.console import Console
 
 from cppython.core.schema import ProjectConfiguration, SyncData
 from cppython.project import Project
+from cppython.utility.exception import InstallationVerificationError
 from cppython.utility.output import OutputSession
 
 
@@ -62,8 +64,11 @@ class BuildPreparation:
         """Run CPPython preparation and return the build preparation result.
 
         Syncs provider config and verifies that C++ dependencies have been
-        installed. Native dependencies must be installed explicitly with
-        ``cppython install`` before invoking a package build.
+        installed. In a source checkout, native dependencies must be installed
+        explicitly with ``cppython install`` before invoking a package build.
+        When building from an extracted sdist (``PKG-INFO`` at the source root),
+        no manual step is possible, so missing dependencies are installed through
+        the provider. The build tree is never configured here.
 
         Returns:
             BuildPreparationResult containing sync data for the active generator
@@ -99,7 +104,16 @@ class BuildPreparation:
 
             self.logger.info("CPPython: Verifying C++ dependencies are installed")
 
-            sync_data = project.prepare_build()
+            try:
+                sync_data = project.prepare_build()
+            except InstallationVerificationError:
+                if not (self.source_dir / "PKG-INFO").exists():
+                    raise
+                self.logger.info(
+                    "CPPython: Building from sdist, installing C++ dependencies"
+                )
+                project.install()
+                sync_data = project.prepare_build()
 
             if sync_data:
                 self.logger.info(

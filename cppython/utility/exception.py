@@ -30,9 +30,7 @@ class NotSupportedError(Exception):
 class ProviderInstallationError(Exception):
     """Raised when provider installation fails."""
 
-    def __init__(
-        self, provider_name: str, error: str, original_error: Exception | None = None
-    ) -> None:
+    def __init__(self, provider_name: str, error: str, original_error: Exception | None = None) -> None:
         """Initializes the error.
 
         Args:
@@ -49,9 +47,7 @@ class ProviderInstallationError(Exception):
 class ProviderConfigurationError(Exception):
     """Raised when provider configuration is invalid."""
 
-    def __init__(
-        self, provider_name: str, error: str, configuration_key: str | None = None
-    ) -> None:
+    def __init__(self, provider_name: str, error: str, configuration_key: str | None = None) -> None:
         """Initializes the error.
 
         Args:
@@ -66,7 +62,7 @@ class ProviderConfigurationError(Exception):
         message = f"Provider '{provider_name}' configuration error"
         if configuration_key:
             message += f" in '{configuration_key}'"
-        message += f": {error}"
+        message += f': {error}'
         super().__init__(message)
 
 
@@ -83,7 +79,7 @@ class InstallationVerificationError(Exception):
         self.provider_name = provider_name
         self.missing_artifacts = missing_artifacts
 
-        artifact_list = ", ".join(missing_artifacts)
+        artifact_list = ', '.join(missing_artifacts)
         super().__init__(
             f"Provider '{provider_name}' artifacts not found: {artifact_list}. Run 'cppython install' before building."
         )

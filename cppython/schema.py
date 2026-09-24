@@ -35,6 +35,15 @@ class API(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project's build tree.
+
+        Args:
+            configuration: Optional named configuration to use.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
     def build(self, configuration: str | None = None) -> None:
         """Builds the project
 

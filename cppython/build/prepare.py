@@ -1,21 +1,20 @@
 """Build preparation utilities for CPPython.
 
-This module handles the pre-build workflow: running CPPython's provider
-to install C++ dependencies and extract sync data for injection into
-the appropriate build backend (scikit-build-core or meson-python).
+This module handles the pre-build workflow: syncing provider configuration,
+verifying that C++ dependencies are already installed, and extracting sync
+data for injection into the appropriate build backend.
 """
 
 import logging
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import tomllib
 from rich.console import Console
 
 from cppython.core.schema import ProjectConfiguration, SyncData
 from cppython.project import Project
-from cppython.utility.exception import InstallationVerificationError
 from cppython.utility.output import OutputSession
 
 
@@ -41,7 +40,7 @@ class BuildPreparation:
             source_dir: The source directory containing pyproject.toml
         """
         self.source_dir = source_dir.absolute()
-        self.logger = logging.getLogger('cppython.build')
+        self.logger = logging.getLogger("cppython.build")
 
     def _load_pyproject(self) -> dict[str, Any]:
         """Load pyproject.toml from the source directory.
@@ -52,34 +51,33 @@ class BuildPreparation:
         Raises:
             FileNotFoundError: If pyproject.toml doesn't exist
         """
-        pyproject_path = self.source_dir / 'pyproject.toml'
+        pyproject_path = self.source_dir / "pyproject.toml"
         if not pyproject_path.exists():
-            raise FileNotFoundError(f'pyproject.toml not found at {pyproject_path}')
+            raise FileNotFoundError(f"pyproject.toml not found at {pyproject_path}")
 
-        with open(pyproject_path, 'rb') as f:
+        with open(pyproject_path, "rb") as f:
             return tomllib.load(f)
 
     def prepare(self) -> BuildPreparationResult:
         """Run CPPython preparation and return the build preparation result.
 
         Syncs provider config and verifies that C++ dependencies have been
-        installed. If artifacts are missing, installs them automatically so
-        that a plain ``pip wheel .`` / ``pdm install`` works from a clean
-        clone without a separate ``cppython install`` step.
+        installed. Native dependencies must be installed explicitly with
+        ``cppython install`` before invoking a package build.
 
         Returns:
             BuildPreparationResult containing sync data for the active generator
 
         Raises:
-            InstallationVerificationError: If provider artifacts are still missing after install
+            InstallationVerificationError: If provider artifacts have not been installed
         """
-        self.logger.info('CPPython: Preparing build environment')
+        self.logger.info("CPPython: Preparing build environment")
 
         pyproject_data = self._load_pyproject()
 
         # Get version from pyproject if available
-        project_data = pyproject_data.get('project', {})
-        version = project_data.get('version')
+        project_data = pyproject_data.get("project", {})
+        version = project_data.get("version")
 
         # Create project configuration
         project_config = ProjectConfiguration(
@@ -96,22 +94,20 @@ class BuildPreparation:
             project = Project(project_config, pyproject_data, session=session)
 
             if not project.enabled:
-                self.logger.info('CPPython: Project not enabled, skipping preparation')
+                self.logger.info("CPPython: Project not enabled, skipping preparation")
                 return BuildPreparationResult()
 
-            self.logger.info('CPPython: Verifying C++ dependencies are installed')
+            self.logger.info("CPPython: Verifying C++ dependencies are installed")
 
-            try:
-                sync_data = project.prepare_build()
-            except InstallationVerificationError:
-                self.logger.info('CPPython: C++ dependencies missing, installing automatically')
-                project.install()
-                sync_data = project.prepare_build()
+            sync_data = project.prepare_build()
 
             if sync_data:
-                self.logger.info('CPPython: Sync data obtained from provider: %s', type(sync_data).__name__)
+                self.logger.info(
+                    "CPPython: Sync data obtained from provider: %s",
+                    type(sync_data).__name__,
+                )
             else:
-                self.logger.warning('CPPython: No sync data generated')
+                self.logger.warning("CPPython: No sync data generated")
 
             return BuildPreparationResult(sync_data=sync_data)
 

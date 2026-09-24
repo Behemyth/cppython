@@ -31,33 +31,41 @@ class Project(API):
         """
         self._enabled = False
         self._session: SessionProtocol = session or NULL_SESSION
-        self.logger = logging.getLogger('cppython')
+        self.logger = logging.getLogger("cppython")
 
         # Early exit: if no CPPython configuration table, do nothing silently
-        tool_data = pyproject_data.get('tool')
-        if not tool_data or not isinstance(tool_data, dict) or not tool_data.get('cppython'):
+        tool_data = pyproject_data.get("tool")
+        if (
+            not tool_data
+            or not isinstance(tool_data, dict)
+            or not tool_data.get("cppython")
+        ):
             return
 
         builder = Builder(project_configuration, self.logger)
 
-        self.logger.info('Initializing project')
+        self.logger.info("Initializing project")
 
         try:
             pyproject = resolve_model(PyProject, pyproject_data)
         except ConfigException as error:
             # Log the exception message explicitly
-            self.logger.error('Configuration error:\n%s', error, exc_info=False)
-            raise SystemExit('Error: Invalid configuration. Please check your pyproject.toml.') from None
+            self.logger.error("Configuration error:\n%s", error, exc_info=False)
+            raise SystemExit(
+                "Error: Invalid configuration. Please check your pyproject.toml."
+            ) from None
 
         if not pyproject.tool or not pyproject.tool.cppython:
-            self.logger.info("The pyproject.toml file doesn't contain the `tool.cppython` table")
+            self.logger.info(
+                "The pyproject.toml file doesn't contain the `tool.cppython` table"
+            )
             return
 
         self._data = builder.build(pyproject.project, pyproject.tool.cppython)
 
         self._enabled = True
 
-        self.logger.info('Initialized project successfully')
+        self.logger.info("Initialized project successfully")
 
     @property
     def enabled(self) -> bool:
@@ -86,17 +94,17 @@ class Project(API):
             - ``generator``: name and :class:`PluginReport` for the active generator plugin
         """
         if not self._enabled:
-            self.logger.info('Skipping info because the project is not enabled')
+            self.logger.info("Skipping info because the project is not enabled")
             return {}
 
         return {
-            'provider': {
-                'name': self._data.plugins.provider.name(),
-                'report': self._data.plugins.provider.plugin_info(),
+            "provider": {
+                "name": self._data.plugins.provider.name(),
+                "report": self._data.plugins.provider.plugin_info(),
             },
-            'generator': {
-                'name': self._data.plugins.generator.name(),
-                'report': self._data.plugins.generator.plugin_info(),
+            "generator": {
+                "name": self._data.plugins.generator.name(),
+                "report": self._data.plugins.generator.plugin_info(),
             },
         }
 
@@ -110,30 +118,30 @@ class Project(API):
             Exception: Provider-specific exceptions are propagated with full context
         """
         if not self._enabled:
-            self.logger.info('Skipping install because the project is not enabled')
+            self.logger.info("Skipping install because the project is not enabled")
             return
 
-        self.logger.info('Installing tools')
+        self.logger.info("Installing tools")
 
-        with self._session.spinner('Downloading provider tools...'):
+        with self._session.spinner("Downloading provider tools..."):
             asyncio.run(self._data.download_provider_tools())
 
-        self.logger.info('Installing project')
+        self.logger.info("Installing project")
 
         # Log active groups
         if groups:
-            self.logger.info('Installing with dependency groups: %s', ', '.join(groups))
+            self.logger.info("Installing with dependency groups: %s", ", ".join(groups))
 
-        self.logger.info('Installing %s provider', self._data.plugins.provider.name())
+        self.logger.info("Installing %s provider", self._data.plugins.provider.name())
 
         # Validate and log active groups
         self._data.apply_dependency_groups(groups)
 
         # Sync before install to allow provider to access generator's resolved configuration
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Installing dependencies...'):
+        with self._session.spinner("Installing dependencies..."):
             self._data.plugins.provider.install(groups=groups)
 
     def update(self, groups: list[str] | None = None) -> None:
@@ -146,29 +154,29 @@ class Project(API):
             Exception: Provider-specific exception
         """
         if not self._enabled:
-            self.logger.info('Skipping update because the project is not enabled')
+            self.logger.info("Skipping update because the project is not enabled")
             return
 
-        self.logger.info('Updating tools')
+        self.logger.info("Updating tools")
 
-        with self._session.spinner('Downloading provider tools...'):
+        with self._session.spinner("Downloading provider tools..."):
             asyncio.run(self._data.download_provider_tools())
 
-        self.logger.info('Updating project')
+        self.logger.info("Updating project")
 
         # Log active groups
         if groups:
-            self.logger.info('Updating with dependency groups: %s', ', '.join(groups))
+            self.logger.info("Updating with dependency groups: %s", ", ".join(groups))
 
-        self.logger.info('Updating %s provider', self._data.plugins.provider.name())
+        self.logger.info("Updating %s provider", self._data.plugins.provider.name())
 
         # Validate and log active groups
         self._data.apply_dependency_groups(groups)
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Updating dependencies...'):
+        with self._session.spinner("Updating dependencies..."):
             self._data.plugins.provider.update(groups=groups)
 
     def publish(self) -> None:
@@ -178,16 +186,40 @@ class Project(API):
             Exception: Provider-specific exception
         """
         if not self._enabled:
-            self.logger.info('Skipping publish because the project is not enabled')
+            self.logger.info("Skipping publish because the project is not enabled")
             return
 
-        self.logger.info('Publishing project')
+        self.logger.info("Publishing project")
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Publishing package...'):
+        with self._session.spinner("Publishing package..."):
             self._data.plugins.provider.publish()
+
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project build tree after verifying native dependencies.
+
+        Args:
+            configuration: Optional named configuration to use
+
+        Raises:
+            InstallationVerificationError: If provider artifacts are missing
+        """
+        if not self._enabled:
+            self.logger.info("Skipping configure because the project is not enabled")
+            return
+
+        self.logger.info("Configuring project")
+
+        with self._session.spinner("Syncing project data..."):
+            self._data.sync()
+
+        with self._session.spinner("Verifying installed dependencies..."):
+            self._data.plugins.provider.verify_installed()
+
+        with self._session.spinner("Configuring project..."):
+            self._data.plugins.generator.configure(configuration=configuration)
 
     def prepare_build(self) -> SyncData | None:
         """Prepare for a PEP 517 build without installing C++ dependencies.
@@ -205,10 +237,12 @@ class Project(API):
             InstallationVerificationError: If provider artifacts are missing
         """
         if not self._enabled:
-            self.logger.info('Skipping prepare_build because the project is not enabled')
+            self.logger.info(
+                "Skipping prepare_build because the project is not enabled"
+            )
             return None
 
-        self.logger.info('Preparing build environment')
+        self.logger.info("Preparing build environment")
 
         # Sync config files so the generator has up-to-date presets / native files
         self._data.sync()
@@ -229,15 +263,15 @@ class Project(API):
             configuration: Optional named configuration to use
         """
         if not self._enabled:
-            self.logger.info('Skipping build because the project is not enabled')
+            self.logger.info("Skipping build because the project is not enabled")
             return
 
-        self.logger.info('Building project')
+        self.logger.info("Building project")
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Building project...'):
+        with self._session.spinner("Building project..."):
             self._data.plugins.generator.build(configuration=configuration)
 
     def test(self, configuration: str | None = None) -> None:
@@ -250,15 +284,15 @@ class Project(API):
             configuration: Optional named configuration to use
         """
         if not self._enabled:
-            self.logger.info('Skipping test because the project is not enabled')
+            self.logger.info("Skipping test because the project is not enabled")
             return
 
-        self.logger.info('Running tests')
+        self.logger.info("Running tests")
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Running tests...'):
+        with self._session.spinner("Running tests..."):
             self._data.plugins.generator.test(configuration=configuration)
 
     def bench(self, configuration: str | None = None) -> None:
@@ -271,15 +305,15 @@ class Project(API):
             configuration: Optional named configuration to use
         """
         if not self._enabled:
-            self.logger.info('Skipping bench because the project is not enabled')
+            self.logger.info("Skipping bench because the project is not enabled")
             return
 
-        self.logger.info('Running benchmarks')
+        self.logger.info("Running benchmarks")
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner('Running benchmarks...'):
+        with self._session.spinner("Running benchmarks..."):
             self._data.plugins.generator.bench(configuration=configuration)
 
     def run(self, target: str, configuration: str | None = None) -> None:
@@ -293,15 +327,15 @@ class Project(API):
             configuration: Optional named configuration to use
         """
         if not self._enabled:
-            self.logger.info('Skipping run because the project is not enabled')
+            self.logger.info("Skipping run because the project is not enabled")
             return
 
-        self.logger.info('Running target: %s', target)
+        self.logger.info("Running target: %s", target)
 
-        with self._session.spinner('Syncing project data...'):
+        with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
-        with self._session.spinner(f'Running {target}...'):
+        with self._session.spinner(f"Running {target}..."):
             self._data.plugins.generator.run(target, configuration=configuration)
 
     def list_targets(self) -> list[str]:
@@ -312,7 +346,7 @@ class Project(API):
             if the project is not enabled.
         """
         if not self._enabled:
-            self.logger.info('Skipping list_targets because the project is not enabled')
+            self.logger.info("Skipping list_targets because the project is not enabled")
             return []
 
         return self._data.plugins.generator.list_targets()

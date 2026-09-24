@@ -15,18 +15,19 @@ from cppython.configuration import ConfigurationLoader
 from cppython.console.schema import ConsoleConfiguration
 from cppython.core.schema import PluginReport, ProjectConfiguration
 from cppython.project import Project
+from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.output import OutputSession
 
 app = typer.Typer(no_args_is_help=True)
 
 info_app = typer.Typer(
     no_args_is_help=True,
-    help='Prints project information including plugin configuration, managed files, and templates.',
+    help="Prints project information including plugin configuration, managed files, and templates.",
 )
-app.add_typer(info_app, name='info')
+app.add_typer(info_app, name="info")
 
-list_app = typer.Typer(no_args_is_help=True, help='List project entities.')
-app.add_typer(list_app, name='list')
+list_app = typer.Typer(no_args_is_help=True, help="List project entities.")
+app.add_typer(list_app, name="list")
 
 
 def _get_configuration(context: typer.Context) -> ConsoleConfiguration:
@@ -37,7 +38,7 @@ def _get_configuration(context: typer.Context) -> ConsoleConfiguration:
     """
     configuration = context.find_object(ConsoleConfiguration)
     if configuration is None:
-        raise ValueError('The configuration object is missing')
+        raise ValueError("The configuration object is missing")
     return configuration
 
 
@@ -51,12 +52,14 @@ def get_enabled_project(context: typer.Context) -> Project:
 
     project = Project(configuration.project_configuration, pyproject_data)
     if not project.enabled:
-        print('[bold red]Error[/bold red]: Project is not enabled. Please check your configuration files.')
-        print('Configuration files checked:')
+        print(
+            "[bold red]Error[/bold red]: Project is not enabled. Please check your configuration files."
+        )
+        print("Configuration files checked:")
         config_info = loader.config_source_info()
         for config_file, exists in config_info.items():
-            status = '✓' if exists else '✗'
-            print(f'  {status} {config_file}')
+            status = "✓" if exists else "✗"
+            print(f"  {status} {config_file}")
         raise typer.Exit(code=1)
     return project
 
@@ -100,21 +103,25 @@ def _parse_groups_argument(groups: str | None) -> list[str] | None:
         return None
 
     # Check for square brackets
-    if not (groups.startswith('[') and groups.endswith(']')):
-        raise typer.BadParameter(f"Invalid groups format: '{groups}'. Use square brackets like: [test] or [dev,test]")
+    if not (groups.startswith("[") and groups.endswith("]")):
+        raise typer.BadParameter(
+            f"Invalid groups format: '{groups}'. Use square brackets like: [test] or [dev,test]"
+        )
 
     # Extract content between brackets and split by comma
     content = groups[1:-1].strip()
 
     if not content:
-        raise typer.BadParameter('Empty groups specification. Provide at least one group name.')
+        raise typer.BadParameter(
+            "Empty groups specification. Provide at least one group name."
+        )
 
     # Split by comma and strip whitespace from each group
-    group_list = [g.strip() for g in content.split(',')]
+    group_list = [g.strip() for g in content.split(",")]
 
     # Validate group names are not empty
     if any(not g for g in group_list):
-        raise typer.BadParameter('Group names cannot be empty.')
+        raise typer.BadParameter("Group names cannot be empty.")
 
     return group_list
 
@@ -131,12 +138,12 @@ def _find_pyproject_file() -> Path:
     path = Path.cwd()
 
     while True:
-        if (path / 'pyproject.toml').exists():
+        if (path / "pyproject.toml").exists():
             return path
         parent = path.parent
         if parent == path:
             raise AssertionError(
-                'This is not a valid project. No pyproject.toml found in the current directory or any of its parents.'
+                "This is not a valid project. No pyproject.toml found in the current directory or any of its parents."
             )
         path = parent
 
@@ -145,7 +152,10 @@ def _find_pyproject_file() -> Path:
 def main(
     context: typer.Context,
     verbose: Annotated[
-        int, typer.Option('-v', '--verbose', count=True, min=0, max=2, help='Print additional output')
+        int,
+        typer.Option(
+            "-v", "--verbose", count=True, min=0, max=2, help="Print additional output"
+        ),
     ] = 0,
     debug: Annotated[bool, typer.Option()] = False,
 ) -> None:
@@ -158,7 +168,9 @@ def main(
     """
     path = _find_pyproject_file()
 
-    project_configuration = ProjectConfiguration(verbosity=verbose, debug=debug, project_root=path, version=None)
+    project_configuration = ProjectConfiguration(
+        verbosity=verbose, debug=debug, project_root=path, version=None
+    )
 
     context.obj = ConsoleConfiguration(project_configuration=project_configuration)
 
@@ -171,24 +183,24 @@ def _print_plugin_report(role: str, name: str, report: PluginReport) -> None:
         name: The plugin name
         report: The plugin report to display
     """
-    print(f'\n[bold]{role}:[/bold] {name}')
+    print(f"\n[bold]{role}:[/bold] {name}")
 
     if report.configuration:
-        print('  [bold]Configuration:[/bold]')
+        print("  [bold]Configuration:[/bold]")
         for key, value in report.configuration.items():
-            print(f'    {key}: {value}')
+            print(f"    {key}: {value}")
 
     if report.managed_files:
-        print('  [bold]Managed files:[/bold]')
+        print("  [bold]Managed files:[/bold]")
         for file_path in report.managed_files:
-            print(f'    {file_path}')
+            print(f"    {file_path}")
 
     if report.template_files:
-        print('  [bold]Templates:[/bold]')
+        print("  [bold]Templates:[/bold]")
         for filename, content in report.template_files.items():
-            print(f'    [cyan]{filename}[/cyan]')
+            print(f"    [cyan]{filename}[/cyan]")
             print()
-            print(Syntax(content, 'python', theme='monokai', line_numbers=True))
+            print(Syntax(content, "python", theme="monokai", line_numbers=True))
 
 
 @info_app.command()
@@ -199,11 +211,11 @@ def info_provider(
     project = get_enabled_project(context)
     project_info = project.info()
 
-    entry = project_info.get('provider')
+    entry = project_info.get("provider")
     if entry is None:
         return
 
-    _print_plugin_report('Provider', entry['name'], entry['report'])
+    _print_plugin_report("Provider", entry["name"], entry["report"])
 
 
 @info_app.command()
@@ -214,11 +226,11 @@ def info_generator(
     project = get_enabled_project(context)
     project_info = project.info()
 
-    entry = project_info.get('generator')
+    entry = project_info.get("generator")
     if entry is None:
         return
 
-    _print_plugin_report('Generator', entry['name'], entry['report'])
+    _print_plugin_report("Generator", entry["name"], entry["report"])
 
 
 @app.command()
@@ -227,8 +239,14 @@ def install(
     groups: Annotated[
         str | None,
         typer.Argument(
-            help='Dependency groups to install in addition to base dependencies. '
-            'Use square brackets like: [test] or [dev,test]'
+            help="Dependency groups to install in addition to base dependencies. "
+            "Use square brackets like: [test] or [dev,test]"
+        ),
+    ] = None,
+    configuration: Annotated[
+        str | None,
+        typer.Option(
+            help="Named build configuration to configure after installing dependencies"
         ),
     ] = None,
 ) -> None:
@@ -237,6 +255,7 @@ def install(
     Args:
         context: The CLI configuration object
         groups: Optional dependency groups to install (e.g., [test] or [dev,test])
+        configuration: Optional named configuration to configure after installation
 
     Raises:
         ValueError: If the configuration object is missing
@@ -245,6 +264,12 @@ def install(
 
     with _session_project(context) as project:
         project.install(groups=group_list)
+        try:
+            project.configure(configuration=configuration)
+        except ConfigurationRequiredError as error:
+            print(
+                f"[yellow]Native dependencies installed; build tree not configured.[/yellow] {error}"
+            )
 
 
 @app.command()
@@ -253,8 +278,14 @@ def update(
     groups: Annotated[
         str | None,
         typer.Argument(
-            help='Dependency groups to update in addition to base dependencies. '
-            'Use square brackets like: [test] or [dev,test]'
+            help="Dependency groups to update in addition to base dependencies. "
+            "Use square brackets like: [test] or [dev,test]"
+        ),
+    ] = None,
+    configuration: Annotated[
+        str | None,
+        typer.Option(
+            help="Named build configuration to configure after updating dependencies"
         ),
     ] = None,
 ) -> None:
@@ -263,6 +294,7 @@ def update(
     Args:
         context: The CLI configuration object
         groups: Optional dependency groups to update (e.g., [test] or [dev,test])
+        configuration: Optional named configuration to configure after update
 
     Raises:
         ValueError: If the configuration object is missing
@@ -271,25 +303,31 @@ def update(
 
     with _session_project(context) as project:
         project.update(groups=group_list)
+        try:
+            project.configure(configuration=configuration)
+        except ConfigurationRequiredError as error:
+            print(
+                f"[yellow]Native dependencies updated; build tree not configured.[/yellow] {error}"
+            )
 
 
 @list_app.command()
 def plugins() -> None:
     """List all installed CPPython plugins."""
     groups = {
-        'Generators': 'cppython.generator',
-        'Providers': 'cppython.provider',
-        'SCM': 'cppython.scm',
+        "Generators": "cppython.generator",
+        "Providers": "cppython.provider",
+        "SCM": "cppython.scm",
     }
 
     for label, group in groups.items():
         entries = entry_points(group=group)
-        print(f'\n[bold]{label}:[/bold]')
+        print(f"\n[bold]{label}:[/bold]")
         if not entries:
-            print('  (none installed)')
+            print("  (none installed)")
         else:
             for ep in sorted(entries, key=lambda e: e.name):
-                print(f'  {ep.name}')
+                print(f"  {ep.name}")
 
 
 @list_app.command()
@@ -301,12 +339,12 @@ def targets(
     target_list = project.list_targets()
 
     if not target_list:
-        print('[dim]No targets found. Have you run install and build?[/dim]')
+        print("[dim]No targets found. Have you run install and build?[/dim]")
         return
 
-    print('\n[bold]Targets:[/bold]')
+    print("\n[bold]Targets:[/bold]")
     for target_name in sorted(target_list):
-        print(f'  {target_name}')
+        print(f"  {target_name}")
 
 
 @app.command()
@@ -330,7 +368,9 @@ def build(
     context: typer.Context,
     configuration: Annotated[
         str | None,
-        typer.Option(help='Named build configuration to use (e.g. CMake preset name, Meson build directory)'),
+        typer.Option(
+            help="Named build configuration to use (e.g. CMake preset name, Meson build directory)"
+        ),
     ] = None,
 ) -> None:
     """Build the project
@@ -350,7 +390,9 @@ def test(
     context: typer.Context,
     configuration: Annotated[
         str | None,
-        typer.Option(help='Named build configuration to use (e.g. CMake preset name, Meson build directory)'),
+        typer.Option(
+            help="Named build configuration to use (e.g. CMake preset name, Meson build directory)"
+        ),
     ] = None,
 ) -> None:
     """Run project tests
@@ -370,7 +412,9 @@ def bench(
     context: typer.Context,
     configuration: Annotated[
         str | None,
-        typer.Option(help='Named build configuration to use (e.g. CMake preset name, Meson build directory)'),
+        typer.Option(
+            help="Named build configuration to use (e.g. CMake preset name, Meson build directory)"
+        ),
     ] = None,
 ) -> None:
     """Run project benchmarks
@@ -390,11 +434,13 @@ def run(
     context: typer.Context,
     target: Annotated[
         str,
-        typer.Argument(help='The name of the build target/executable to run'),
+        typer.Argument(help="The name of the build target/executable to run"),
     ],
     configuration: Annotated[
         str | None,
-        typer.Option(help='Named build configuration to use (e.g. CMake preset name, Meson build directory)'),
+        typer.Option(
+            help="Named build configuration to use (e.g. CMake preset name, Meson build directory)"
+        ),
     ] = None,
 ) -> None:
     """Run a built executable

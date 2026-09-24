@@ -60,6 +60,9 @@ CPPython integrates with PDM for development workflow.
 [tool.pdm]
 distribution = true
 
+[dependency-groups]
+native = ["cppython[conan, cmake]"]
+
 [build-system]
 requires = ["cppython[conan, cmake]"]
 build-backend = "cppython.build"
@@ -68,14 +71,15 @@ build-backend = "cppython.build"
 ### Commands
 
 ```bash
-# Install Python dependencies + build extension
+# Bootstrap the CPPython CLI and its native plugins without building this project
+pdm install --no-self -G native
+
+# Install native dependencies and configure the build tree
+pdm run cppython install [test]
+
+# Install the Python project and build its wheel
 pdm install
-
-# Build wheel
 pdm build
-
-# Development with editable install
-pdm install --dev
 ```
 
 ## Build Isolation
@@ -84,9 +88,9 @@ pdm install --dev
 
 `pip wheel .` and `pdm build` use isolated build environments. CPPython handles this by:
 
-1. Installing C++ dependencies to `install-path` (outside isolation)
-2. Generating toolchain in the build directory
-3. Passing absolute paths to scikit-build-core
+1. Verifying C++ dependencies were installed beforehand with `cppython install`
+2. Reading provider artifacts from `install-path` (outside isolation)
+3. Passing absolute toolchain paths to scikit-build-core
 
 ### Caching Dependencies
 
@@ -207,6 +211,7 @@ my_project/
 **Python extension** (uses `cppython.build`):
 
 ```bash
+pdm run cppython install
 pip wheel .
 ```
 

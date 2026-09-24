@@ -2,9 +2,9 @@
 
 A transparent Python management solution for C++ dependencies and building.
 
-CPPython lets you declare C++ dependencies in `pyproject.toml` and have them resolved, installed, and wired into your build system automatically. It works two ways:
+CPPython lets you declare C++ dependencies in `pyproject.toml`, install and configure them with `cppython install`, and consume them from your build system. It works two ways:
 
-- **As a PEP 517 build backend**: declare `cppython.build` in `[build-system]` and CPPython installs C++ dependencies before delegating to scikit-build-core or meson-python. See [Build Backend](build-backend/index.md).
+- **As a PEP 517 build backend**: declare `cppython.build` in `[build-system]`; CPPython verifies that native dependencies were installed explicitly before delegating to scikit-build-core or meson-python. See [Build Backend](build-backend/index.md).
 - **As a CLI**: run `cppython install`, `cppython build`, and related commands directly against a CMake or Meson project, without a Python packaging step.
 
 ## Plugin architecture
@@ -32,6 +32,8 @@ dependencies = ["fmt>=11.0.0"]
 ```
 
 ```bash
+pip install "cppython[conan,cmake]"
+cppython install
 pip wheel .
 ```
 

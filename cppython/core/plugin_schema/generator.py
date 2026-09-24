@@ -52,7 +52,10 @@ class Generator(DataPlugin, SyncConsumer, Protocol):
 
     @abstractmethod
     def __init__(
-        self, group_data: GeneratorPluginGroupData, core_data: CorePluginData, configuration_data: dict[str, Any]
+        self,
+        group_data: GeneratorPluginGroupData,
+        core_data: CorePluginData,
+        configuration_data: dict[str, Any],
     ) -> None:
         """Initializes the generator plugin"""
         raise NotImplementedError
@@ -76,6 +79,15 @@ class Generator(DataPlugin, SyncConsumer, Protocol):
 
         Executes the build step. The interpretation of ``configuration`` is
         generator-specific (e.g. CMake preset name, Meson build directory).
+
+        Args:
+            configuration: Optional named configuration override.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project's build tree.
 
         Args:
             configuration: Optional named configuration override.

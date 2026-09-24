@@ -4,14 +4,14 @@ CPPython provides a PEP 517 build backend that wraps [scikit-build-core](https:/
 
 ## Overview
 
-The `cppython.build` backend automatically:
+The `cppython.build` backend:
 
-1. Runs the CPPython provider workflow (Conan/vcpkg) to install C++ dependencies
+1. Verifies that `cppython install` has already installed native dependencies
 2. Extracts the generated toolchain file
 3. Injects `CMAKE_TOOLCHAIN_FILE` into scikit-build-core
 4. Delegates the actual wheel building to scikit-build-core
 
-This allows you to define C++ dependencies in `[tool.cppython]` and have them automatically available when building Python extensions.
+Build hooks do not install native dependencies or configure the standalone build tree. Run `cppython install` explicitly first.
 
 ## Quick Start
 
@@ -40,6 +40,8 @@ dependencies = ["fmt>=11.0.0", "nanobind>=2.4.0"]
 Then build with:
 
 ```bash
+pip install "cppython[conan,cmake]"
+cppython install
 pip wheel .
 ```
 
@@ -98,6 +100,12 @@ CPPython only injects `CMAKE_TOOLCHAIN_FILE` - all other scikit-build-core setti
 ### Build Workflow
 
 ```
+cppython install
+    │
+    ▼
+Native provider installs dependencies and configures the build tree
+    │
+    ▼
 pip wheel . / pdm build
         │
         ▼
@@ -106,8 +114,7 @@ pip wheel . / pdm build
 ├─────────────────────────────────────┤
 │ 1. Load pyproject.toml              │
 │ 2. Initialize CPPython Project      │
-│ 3. Run provider.install()           │
-│    └─► Conan/vcpkg installs deps    │
+│ 3. Verify provider artifacts        │
 │ 4. Extract toolchain file path      │
 │ 5. Inject CMAKE_TOOLCHAIN_FILE      │
 └──────────────┬──────────────────────┘
@@ -213,7 +220,7 @@ NB_MODULE(_core, m) {
 | scikit-build-core alone | Manual/system | Any | `scikit_build_core.build` |
 | meson-python | Manual/system | Any | `mesonpy` |
 
-CPPython's advantage is automated C++ dependency management - you declare dependencies in `pyproject.toml` and they're installed automatically during the build.
+CPPython's advantage is integrated C++ dependency management: declare dependencies in `pyproject.toml`, install them with `cppython install`, and reuse their generated configuration in package builds.
 
 ## Troubleshooting
 

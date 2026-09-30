@@ -9,10 +9,17 @@ from cppython.core.plugin_schema.generator import (
     GeneratorPluginGroupData,
     SupportedGeneratorFeatures,
 )
-from cppython.core.schema import CorePluginData, Information, PluginReport, SupportedFeatures, SyncData
+from cppython.core.schema import (
+    CorePluginData,
+    Information,
+    PluginReport,
+    SupportedFeatures,
+    SyncData,
+)
 from cppython.plugins.cmake.builder import Builder
 from cppython.plugins.cmake.resolution import resolve_cmake_data
 from cppython.plugins.cmake.schema import CMakeSyncData
+from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.subprocess import run_subprocess
 
 logger = getLogger('cppython.cmake')
@@ -21,7 +28,12 @@ logger = getLogger('cppython.cmake')
 class CMakeGenerator(Generator):
     """CMake generator"""
 
-    def __init__(self, group_data: GeneratorPluginGroupData, core_data: CorePluginData, data: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        group_data: GeneratorPluginGroupData,
+        core_data: CorePluginData,
+        data: dict[str, Any],
+    ) -> None:
         """Initializes the generator"""
         self.group_data = group_data
         self.core_data = core_data
@@ -73,11 +85,17 @@ class CMakeGenerator(Generator):
                 project_root = self.core_data.project_data.project_root
 
                 cppython_preset_file = self.builder.write_cppython_preset(
-                    self._cppython_preset_directory, cppython_preset_file, sync_data, project_root
+                    self._cppython_preset_directory,
+                    cppython_preset_file,
+                    sync_data,
+                    project_root,
                 )
 
                 self.builder.write_root_presets(
-                    self.data.preset_file, cppython_preset_file, self.data, self.core_data.cppython_data.build_path
+                    self.data.preset_file,
+                    cppython_preset_file,
+                    self.data,
+                    self.core_data.cppython_data.build_path,
                 )
             case _:
                 raise ValueError('Unsupported sync data type')
@@ -125,7 +143,7 @@ class CMakeGenerator(Generator):
         """
         effective = configuration or self.data.default_configuration
         if effective is None:
-            raise ValueError(
+            raise ConfigurationRequiredError(
                 'CMake generator requires a configuration. '
                 "Provide --configuration on the CLI or set 'default-configuration' in [tool.cppython.generators.cmake]."
             )
@@ -139,7 +157,17 @@ class CMakeGenerator(Generator):
         """
         preset = self._resolve_configuration(configuration)
         cmd = [self._cmake_command(), '--build', '--preset', preset]
-        run_subprocess(cmd, cwd=self.data.preset_file.parent, logger=logger)
+        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
+
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project using the resolved CMake configure preset.
+
+        Args:
+            configuration: Optional CMake configure preset name.
+        """
+        preset = self._resolve_configuration(configuration)
+        cmd = [self._cmake_command(), '--preset', preset]
+        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def test(self, configuration: str | None = None) -> None:
         """Runs tests using ctest with the resolved preset.
@@ -149,7 +177,7 @@ class CMakeGenerator(Generator):
         """
         preset = self._resolve_configuration(configuration)
         cmd = [self._ctest_command(), '--preset', preset]
-        run_subprocess(cmd, cwd=self.data.preset_file.parent, logger=logger)
+        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def bench(self, configuration: str | None = None) -> None:
         """Runs benchmarks using ctest with the resolved preset.
@@ -159,7 +187,7 @@ class CMakeGenerator(Generator):
         """
         preset = self._resolve_configuration(configuration)
         cmd = [self._ctest_command(), '--preset', preset]
-        run_subprocess(cmd, cwd=self.data.preset_file.parent, logger=logger)
+        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
     def run(self, target: str, configuration: str | None = None) -> None:
         """Runs a built executable by target name.

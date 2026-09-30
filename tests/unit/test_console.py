@@ -1,12 +1,15 @@
 """Tests the typer interface type"""
 
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 import typer
 from typer.testing import CliRunner
 
-from cppython.console.entry import _parse_groups_argument, app
+from cppython.console.entry import _parse_groups_argument, app, configure, install
+from cppython.utility.exception import ConfigurationRequiredError
 
 runner = CliRunner()
 
@@ -88,3 +91,150 @@ class TestParseGroupsArgument:
         """Test that whitespace-only group names raise an error"""
         with pytest.raises(typer.BadParameter, match='Group names cannot be empty'):
             _parse_groups_argument('[test,  ,dev]')
+
+
+class TestInstallAndUpdate:
+    """Tests install and update command composition."""
+
+    @staticmethod
+    def test_install_configures_after_install(monkeypatch: pytest.MonkeyPatch) -> None:
+        """The install command should pass groups and configuration through in order."""
+        calls: list[tuple[str, Any]] = []
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                calls.append(('install', groups))
+
+            def configure(self, configuration: str | None = None) -> None:
+                calls.append(('configure', configuration))
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        result = runner.invoke(app, ['install', '[test]', '--configure', '--configuration', 'dev'])
+
+        assert result.exit_code == 0, result.output
+        assert calls == [('install', ['test']), ('configure', 'dev')]
+
+    @staticmethod
+    def test_update_configures_after_update(monkeypatch: pytest.MonkeyPatch) -> None:
+        """The update command should pass groups and configuration through in order."""
+        calls: list[tuple[str, Any]] = []
+
+        class ProjectStub:
+            def update(self, groups: list[str] | None = None) -> None:
+                calls.append(('update', groups))
+
+            def configure(self, configuration: str | None = None) -> None:
+                calls.append(('configure', configuration))
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        result = runner.invoke(app, ['update', '[test]', '--configure', '--configuration', 'dev'])
+
+        assert result.exit_code == 0, result.output
+        assert calls == [('update', ['test']), ('configure', 'dev')]
+
+    @staticmethod
+    def test_install_reports_missing_configuration(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing default configuration should not turn installation into a failure."""
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                pass
+
+            def configure(self, configuration: str | None = None) -> None:
+                raise ConfigurationRequiredError('no default configuration')
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        install(context=cast(typer.Context, object()), configure=True)
+
+    @staticmethod
+    @pytest.mark.parametrize('command', ['install', 'update'])
+    def test_install_and_update_expose_configuration_option(command: str) -> None:
+        """Both existing setup commands should accept a named configuration."""
+        result = runner.invoke(app, [command, '--help'])
+
+        assert result.exit_code == 0
+        assert '--configuration' in result.stdout
+        assert '--configure' in result.stdout
+        assert '--no-configure' in result.stdout
+
+    @staticmethod
+    @pytest.mark.parametrize('command', ['install', 'update'])
+    @pytest.mark.parametrize('options', [[], ['--no-configure']])
+    def test_dependency_only_command(command: str, options: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+        """Commands leave configuration alone by default and with no-configure."""
+        calls: list[tuple[str, Any]] = []
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                calls.append(('install', groups))
+
+            def update(self, groups: list[str] | None = None) -> None:
+                calls.append(('update', groups))
+
+            def configure(self, configuration: str | None = None) -> None:
+                pytest.fail('Dependency-only commands must not configure the build tree')
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        result = runner.invoke(app, [command, '[test]', *options])
+
+        assert result.exit_code == 0, result.output
+        assert calls == [(command, ['test'])]
+
+    @staticmethod
+    def test_configure_uses_named_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit configuration does not install or update dependencies."""
+        calls: list[str | None] = []
+
+        class ProjectStub:
+            def configure(self, configuration: str | None = None) -> None:
+                calls.append(configuration)
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        result = runner.invoke(app, ['configure', '--configuration', 'dev'])
+
+        assert result.exit_code == 0, result.output
+        assert calls == ['dev']
+
+    @staticmethod
+    def test_configure_reports_missing_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit configuration must not suppress missing configuration errors."""
+
+        class ProjectStub:
+            def configure(self, configuration: str | None = None) -> None:
+                raise ConfigurationRequiredError('no default configuration')
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+
+        with pytest.raises(ConfigurationRequiredError, match='no default configuration'):
+            configure(context=cast(typer.Context, object()))

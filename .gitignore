@@ -8,6 +8,7 @@ TestResults/
 #Python
 *.egg-info
 *.pyc
+__pycache__/
 dist/
 .vs/
 .venv/

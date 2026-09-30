@@ -9,7 +9,13 @@ from cppython.core.plugin_schema.generator import (
     GeneratorPluginGroupData,
     SupportedGeneratorFeatures,
 )
-from cppython.core.schema import CorePluginData, CPPythonModel, Information, SupportedFeatures, SyncData
+from cppython.core.schema import (
+    CorePluginData,
+    CPPythonModel,
+    Information,
+    SupportedFeatures,
+    SyncData,
+)
 
 
 class MockSyncData(SyncData):
@@ -24,7 +30,10 @@ class MockGenerator(Generator):
     """A mock generator class for behavior testing"""
 
     def __init__(
-        self, group_data: GeneratorPluginGroupData, core_data: CorePluginData, configuration_data: dict[str, Any]
+        self,
+        group_data: GeneratorPluginGroupData,
+        core_data: CorePluginData,
+        configuration_data: dict[str, Any],
     ) -> None:
         """Initializes the mock generator"""
         self.group_data = group_data
@@ -63,6 +72,9 @@ class MockGenerator(Generator):
 
     def build(self, configuration: str | None = None) -> None:
         """No-op build for testing"""
+
+    def configure(self, configuration: str | None = None) -> None:
+        """No-op configure for testing"""
 
     def test(self, configuration: str | None = None) -> None:
         """No-op test for testing"""

@@ -15,6 +15,7 @@ from cppython.configuration import ConfigurationLoader
 from cppython.console.schema import ConsoleConfiguration
 from cppython.core.schema import PluginReport, ProjectConfiguration
 from cppython.project import Project
+from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.output import OutputSession
 
 app = typer.Typer(no_args_is_help=True)
@@ -145,7 +146,8 @@ def _find_pyproject_file() -> Path:
 def main(
     context: typer.Context,
     verbose: Annotated[
-        int, typer.Option('-v', '--verbose', count=True, min=0, max=2, help='Print additional output')
+        int,
+        typer.Option('-v', '--verbose', count=True, min=0, max=2, help='Print additional output'),
     ] = 0,
     debug: Annotated[bool, typer.Option()] = False,
 ) -> None:
@@ -231,12 +233,22 @@ def install(
             'Use square brackets like: [test] or [dev,test]'
         ),
     ] = None,
+    configuration: Annotated[
+        str | None,
+        typer.Option(help='Named build configuration to configure after installing dependencies'),
+    ] = None,
+    configure: Annotated[
+        bool,
+        typer.Option('--configure/--no-configure', help='Configure the build tree after installation'),
+    ] = False,
 ) -> None:
     """Install API call
 
     Args:
         context: The CLI configuration object
         groups: Optional dependency groups to install (e.g., [test] or [dev,test])
+        configuration: Optional named configuration to configure after installation
+        configure: Whether to configure the build tree after installation
 
     Raises:
         ValueError: If the configuration object is missing
@@ -245,6 +257,12 @@ def install(
 
     with _session_project(context) as project:
         project.install(groups=group_list)
+        if not configure:
+            return
+        try:
+            project.configure(configuration=configuration)
+        except ConfigurationRequiredError as error:
+            print(f'[yellow]Native dependencies installed; build tree not configured.[/yellow] {error}')
 
 
 @app.command()
@@ -257,12 +275,22 @@ def update(
             'Use square brackets like: [test] or [dev,test]'
         ),
     ] = None,
+    configuration: Annotated[
+        str | None,
+        typer.Option(help='Named build configuration to configure after updating dependencies'),
+    ] = None,
+    configure: Annotated[
+        bool,
+        typer.Option('--configure/--no-configure', help='Configure the build tree after updating dependencies'),
+    ] = False,
 ) -> None:
     """Update API call
 
     Args:
         context: The CLI configuration object
         groups: Optional dependency groups to update (e.g., [test] or [dev,test])
+        configuration: Optional named configuration to configure after update
+        configure: Whether to configure the build tree after update
 
     Raises:
         ValueError: If the configuration object is missing
@@ -271,6 +299,30 @@ def update(
 
     with _session_project(context) as project:
         project.update(groups=group_list)
+        if not configure:
+            return
+        try:
+            project.configure(configuration=configuration)
+        except ConfigurationRequiredError as error:
+            print(f'[yellow]Native dependencies updated; build tree not configured.[/yellow] {error}')
+
+
+@app.command()
+def configure(
+    context: typer.Context,
+    configuration: Annotated[
+        str | None,
+        typer.Option(help='Named build configuration to use (e.g. CMake preset name, Meson build directory)'),
+    ] = None,
+) -> None:
+    """Configure the build tree using previously installed dependencies.
+
+    Args:
+        context: The CLI configuration object
+        configuration: Optional named configuration
+    """
+    with _session_project(context) as project:
+        project.configure(configuration=configuration)
 
 
 @list_app.command()

@@ -1,8 +1,8 @@
 """Build preparation utilities for CPPython.
 
-This module handles the pre-build workflow: running CPPython's provider
-to install C++ dependencies and extract sync data for injection into
-the appropriate build backend (scikit-build-core or meson-python).
+This module handles the pre-build workflow: syncing provider configuration,
+verifying that C++ dependencies are installed, installing missing dependencies,
+and extracting sync data for injection into the appropriate build backend.
 """
 
 import logging
@@ -63,15 +63,15 @@ class BuildPreparation:
         """Run CPPython preparation and return the build preparation result.
 
         Syncs provider config and verifies that C++ dependencies have been
-        installed. If artifacts are missing, installs them automatically so
-        that a plain ``pip wheel .`` / ``pdm install`` works from a clean
-        clone without a separate ``cppython install`` step.
+        installed. Missing dependencies are installed through the provider for
+        both source checkouts and extracted sdists, then verified again.
+        The standalone build tree is never configured here.
 
         Returns:
             BuildPreparationResult containing sync data for the active generator
 
         Raises:
-            InstallationVerificationError: If provider artifacts are still missing after install
+            InstallationVerificationError: If provider artifacts are still missing after installation
         """
         self.logger.info('CPPython: Preparing build environment')
 
@@ -104,12 +104,15 @@ class BuildPreparation:
             try:
                 sync_data = project.prepare_build()
             except InstallationVerificationError:
-                self.logger.info('CPPython: C++ dependencies missing, installing automatically')
+                self.logger.info('CPPython: Installing missing C++ dependencies')
                 project.install()
                 sync_data = project.prepare_build()
 
             if sync_data:
-                self.logger.info('CPPython: Sync data obtained from provider: %s', type(sync_data).__name__)
+                self.logger.info(
+                    'CPPython: Sync data obtained from provider: %s',
+                    type(sync_data).__name__,
+                )
             else:
                 self.logger.warning('CPPython: No sync data generated')
 

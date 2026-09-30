@@ -189,6 +189,30 @@ class Project(API):
         with self._session.spinner('Publishing package...'):
             self._data.plugins.provider.publish()
 
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project build tree after verifying native dependencies.
+
+        Args:
+            configuration: Optional named configuration to use
+
+        Raises:
+            InstallationVerificationError: If provider artifacts are missing
+        """
+        if not self._enabled:
+            self.logger.info('Skipping configure because the project is not enabled')
+            return
+
+        self.logger.info('Configuring project')
+
+        with self._session.spinner('Syncing project data...'):
+            self._data.sync()
+
+        with self._session.spinner('Verifying installed dependencies...'):
+            self._data.plugins.provider.verify_installed()
+
+        with self._session.spinner('Configuring project...'):
+            self._data.plugins.generator.configure(configuration=configuration)
+
     def prepare_build(self) -> SyncData | None:
         """Prepare for a PEP 517 build without installing C++ dependencies.
 

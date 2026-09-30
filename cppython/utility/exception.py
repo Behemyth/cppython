@@ -81,15 +81,24 @@ class InstallationVerificationError(Exception):
 
         artifact_list = ', '.join(missing_artifacts)
         super().__init__(
-            f"Provider '{provider_name}' artifacts not found: {artifact_list}. "
-            f"Run 'cppython install' or 'pdm install' before building."
+            f"Provider '{provider_name}' artifacts not found: {artifact_list}. Run 'cppython install' before building."
         )
+
+
+class ConfigurationRequiredError(ValueError):
+    """Raised when a generator needs a configuration but none is selected."""
 
 
 class ProviderToolingError(Exception):
     """Raised when provider tooling operations fail."""
 
-    def __init__(self, provider_name: str, operation: str, error: str, original_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        provider_name: str,
+        operation: str,
+        error: str,
+        original_error: Exception | None = None,
+    ) -> None:
         """Initializes the error.
 
         Args:

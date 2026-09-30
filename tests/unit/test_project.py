@@ -135,7 +135,11 @@ class TestProject:
             'cppython.builder.entry_points',
             return_value=[metadata.EntryPoint(name='mock', value='mock', group='mock')],
         )
-        mocker.patch.object(metadata.EntryPoint, 'load', side_effect=[MockGenerator, MockProvider, MockSCM])
+        mocker.patch.object(
+            metadata.EntryPoint,
+            'load',
+            side_effect=[MockGenerator, MockProvider, MockSCM],
+        )
 
         file_path = tmp_path / 'pyproject.toml'
 
@@ -175,7 +179,11 @@ class TestPrepareBuild:
             'cppython.builder.entry_points',
             return_value=[metadata.EntryPoint(name='mock', value='mock', group='mock')],
         )
-        mocker.patch.object(metadata.EntryPoint, 'load', side_effect=[MockGenerator, MockProvider, MockSCM])
+        mocker.patch.object(
+            metadata.EntryPoint,
+            'load',
+            side_effect=[MockGenerator, MockProvider, MockSCM],
+        )
 
         file_path = tmp_path / 'pyproject.toml'
         with open(file_path, 'a', encoding='utf8'):
@@ -248,3 +256,43 @@ class TestPrepareBuild:
 
         with pytest.raises(InstallationVerificationError, match='mock'):
             project.prepare_build()
+
+    def test_configure_syncs_verifies_then_configures(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        """configure() should sync and verify dependencies before configuring."""
+        project = self._create_enabled_project(tmp_path, mocker)
+        events: list[str] = []
+
+        mocker.patch.object(project._data, 'sync', side_effect=lambda: events.append('sync'))  # noqa: SLF001
+        mocker.patch.object(
+            project._data.plugins.provider,  # noqa: SLF001
+            'verify_installed',
+            side_effect=lambda: events.append('verify'),
+        )
+        configure_spy = mocker.patch.object(
+            project._data.plugins.generator,  # noqa: SLF001
+            'configure',
+            side_effect=lambda configuration=None: events.append(f'configure:{configuration}'),
+        )
+
+        project.configure('dev')
+
+        assert events == ['sync', 'verify', 'configure:dev']
+        configure_spy.assert_called_once_with(configuration='dev')
+
+    def test_configure_does_not_configure_when_artifacts_are_missing(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """configure() should propagate verification failures before invoking the generator."""
+        project = self._create_enabled_project(tmp_path, mocker)
+        mocker.patch.object(project._data, 'sync')  # noqa: SLF001
+        mocker.patch.object(
+            project._data.plugins.provider,  # noqa: SLF001
+            'verify_installed',
+            side_effect=InstallationVerificationError('mock', ['test artifact']),
+        )
+        configure_spy = mocker.patch.object(project._data.plugins.generator, 'configure')  # noqa: SLF001
+
+        with pytest.raises(InstallationVerificationError, match='mock'):
+            project.configure('dev')
+
+        configure_spy.assert_not_called()

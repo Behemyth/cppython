@@ -6,15 +6,17 @@ The tests ensure that the projects build, configure, and execute correctly.
 
 import subprocess
 import sys
+import tarfile
 import tomllib
 import zipfile
 from pathlib import Path
 from tomllib import loads
 
 import pytest
+from pytest_mock import MockerFixture
 from typer.testing import CliRunner
 
-from cppython.build import build_wheel
+from cppython.build import build_sdist, build_wheel
 from cppython.core.schema import ProjectConfiguration
 from cppython.project import Project
 
@@ -178,14 +180,30 @@ class TestConanCMake:
         TestConanCMake._verify_conan_package_configs('mathutils', ['Release', 'Debug'])
 
     @staticmethod
-    def test_extension(example_runner: CliRunner) -> None:
-        """Test Python extension module built with cppython.build backend and scikit-build-core"""
-        # This test uses the cppython.build backend which wraps scikit-build-core
-        # The build backend automatically runs CPPython's provider workflow
+    @pytest.mark.parametrize('source_distribution', [False, True], ids=['checkout', 'sdist'])
+    def test_extension(
+        example_runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        mocker: MockerFixture,
+        source_distribution: bool,
+    ) -> None:
+        """Build a usable extension from a clean checkout or an extracted sdist."""
+        if source_distribution:
+            sdist_directory = tmp_path / 'sdist'
+            sdist_directory.mkdir()
+            sdist_name = build_sdist(str(sdist_directory))
+            extraction_directory = tmp_path / 'extracted'
+            with tarfile.open(sdist_directory / sdist_name) as archive:
+                archive.extractall(extraction_directory, filter='data')
+            source_roots = list(extraction_directory.iterdir())
+            assert len(source_roots) == 1
+            monkeypatch.chdir(source_roots[0])
+            assert Path('PKG-INFO').is_file()
 
-        # Install C++ dependencies first (creates generators/ with conan_toolchain.cmake)
-        project = TestConanCMake._create_project()
-        project.install()
+        assert not Path('build/generators').exists()
+        install_spy = mocker.spy(Project, 'install')
+        configure_spy = mocker.spy(Project, 'configure')
 
         # Create dist directory for the wheel
         dist_path = Path('dist')
@@ -193,6 +211,9 @@ class TestConanCMake:
 
         # Build the wheel using the cppython.build backend directly
         wheel_name = build_wheel(str(dist_path))
+
+        install_spy.assert_called_once()
+        configure_spy.assert_not_called()
 
         # Verify wheel was created
         wheel_path = dist_path / wheel_name

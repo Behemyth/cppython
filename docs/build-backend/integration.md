@@ -60,6 +60,9 @@ CPPython integrates with PDM for development workflow.
 [tool.pdm]
 distribution = true
 
+[dependency-groups]
+native = ["cppython[conan, cmake]"]
+
 [build-system]
 requires = ["cppython[conan, cmake]"]
 build-backend = "cppython.build"
@@ -68,14 +71,27 @@ build-backend = "cppython.build"
 ### Commands
 
 ```bash
-# Install Python dependencies + build extension
+# Install the Python project; its backend installs missing native dependencies
 pdm install
-
-# Build wheel
 pdm build
+```
 
-# Development with editable install
-pdm install --dev
+For a standalone C++ development build, bootstrap the CLI separately:
+
+```bash
+pdm install --no-self -G native
+pdm run cppython install [test]
+pdm run cppython configure --configuration default-release
+pdm run cppython build --configuration default-release
+```
+
+`install` and `update` only install or update dependencies by default. Use `--configure` to
+configure the standalone build tree afterward, and `--configuration` to select its configuration.
+If a required configuration is missing, the combined command reports that dependencies were
+installed or updated but the build tree was not configured:
+
+```bash
+pdm run cppython install [test] --configure --configuration default-release
 ```
 
 ## Build Isolation
@@ -84,9 +100,16 @@ pdm install --dev
 
 `pip wheel .` and `pdm build` use isolated build environments. CPPython handles this by:
 
-1. Installing C++ dependencies to `install-path` (outside isolation)
-2. Generating toolchain in the build directory
-3. Passing absolute paths to scikit-build-core
+1. Verifying C++ dependencies, installing missing dependencies, and verifying again
+2. Reading the provider-generated toolchain or native files from the source tree
+3. Passing absolute toolchain paths to scikit-build-core
+
+### Building from an sdist
+
+A wheel built from a source distribution runs in a freshly extracted directory. The backend installs
+missing native dependencies there, just as it does in a clean checkout. Neither workflow requires a
+manual `cppython install`. The delegated backend configures its own package build, not the standalone
+build tree.
 
 ### Caching Dependencies
 
@@ -125,12 +148,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
-      - name: Install build dependencies
+      - name: Install build tools
         run: pip install build
 
-      - name: Build wheel
+      - name: Build sdist and wheel
         run: python -m build
 
       - name: Upload wheel
@@ -139,6 +162,11 @@ jobs:
           name: wheel
           path: dist/*.whl
 ```
+
+`python -m build` builds the wheel from the generated sdist. Both that command and
+`python -m build --wheel` install missing native dependencies automatically. An optional
+`cppython install` step can prepare dependencies for a checkout build without
+configuring a standalone build tree.
 
 ### Caching Conan Packages
 
@@ -154,21 +182,13 @@ jobs:
 
 ### cibuildwheel
 
-CPPython works with cibuildwheel for building wheels across platforms:
+CPPython works with cibuildwheel for building wheels across platforms. The backend installs missing
+native dependencies during each build; no CPPython `before-build` step is required:
 
 ```toml
 # pyproject.toml
 [tool.cibuildwheel]
 build-verbosity = 1
-
-[tool.cibuildwheel.linux]
-before-all = "pip install conan && conan profile detect"
-
-[tool.cibuildwheel.macos]
-before-all = "pip install conan && conan profile detect"
-
-[tool.cibuildwheel.windows]
-before-all = "pip install conan && conan profile detect"
 ```
 
 ## Editable Installs
@@ -213,8 +233,8 @@ pip wheel .
 **Standalone C++ build** (uses CMakePresets):
 
 ```bash
-cmake --preset=default
-cmake --build build
+pdm run cppython install --configure --configuration default-release
+pdm run cppython build --configuration default-release
 ```
 
 Both workflows share the same Conan-managed dependencies through CPPython's CMake preset integration.

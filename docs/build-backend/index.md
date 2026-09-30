@@ -4,14 +4,14 @@ CPPython provides a PEP 517 build backend that wraps [scikit-build-core](https:/
 
 ## Overview
 
-The `cppython.build` backend automatically:
+The `cppython.build` backend:
 
-1. Runs the CPPython provider workflow (Conan/vcpkg) to install C++ dependencies
+1. Verifies native dependencies, installs any missing dependencies, and verifies again
 2. Extracts the generated toolchain file
 3. Injects `CMAKE_TOOLCHAIN_FILE` into scikit-build-core
 4. Delegates the actual wheel building to scikit-build-core
 
-This allows you to define C++ dependencies in `[tool.cppython]` and have them automatically available when building Python extensions.
+The same preparation runs for source checkouts and extracted sdists. Build hooks do not configure the standalone build tree; scikit-build-core or meson-python configures its own package build. A prior `cppython install` is optional and does not configure the standalone tree by default.
 
 ## Quick Start
 
@@ -106,8 +106,8 @@ pip wheel . / pdm build
 ├─────────────────────────────────────┤
 │ 1. Load pyproject.toml              │
 │ 2. Initialize CPPython Project      │
-│ 3. Run provider.install()           │
-│    └─► Conan/vcpkg installs deps    │
+│ 3. Verify artifacts; install       │
+│    missing dependencies; reverify  │
 │ 4. Extract toolchain file path      │
 │ 5. Inject CMAKE_TOOLCHAIN_FILE      │
 └──────────────┬──────────────────────┘
@@ -213,7 +213,7 @@ NB_MODULE(_core, m) {
 | scikit-build-core alone | Manual/system | Any | `scikit_build_core.build` |
 | meson-python | Manual/system | Any | `mesonpy` |
 
-CPPython's advantage is automated C++ dependency management - you declare dependencies in `pyproject.toml` and they're installed automatically during the build.
+CPPython's advantage is integrated C++ dependency management: declare dependencies in `pyproject.toml` and package builds install them when needed. The CLI can also install dependencies and configure a standalone build tree.
 
 ## Troubleshooting
 

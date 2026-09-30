@@ -9,7 +9,12 @@ from cppython.core.plugin_schema.generator import (
     GeneratorPluginGroupData,
     SupportedGeneratorFeatures,
 )
-from cppython.core.schema import CorePluginData, Information, SupportedFeatures, SyncData
+from cppython.core.schema import (
+    CorePluginData,
+    Information,
+    SupportedFeatures,
+    SyncData,
+)
 from cppython.plugins.meson.builder import Builder
 from cppython.plugins.meson.resolution import resolve_meson_data
 from cppython.plugins.meson.schema import MesonSyncData
@@ -21,7 +26,12 @@ logger = getLogger('cppython.meson')
 class MesonGenerator(Generator):
     """Meson generator"""
 
-    def __init__(self, group_data: GeneratorPluginGroupData, core_data: CorePluginData, data: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        group_data: GeneratorPluginGroupData,
+        core_data: CorePluginData,
+        data: dict[str, Any],
+    ) -> None:
         """Initializes the generator."""
         self.group_data = group_data
         self.core_data = core_data
@@ -104,13 +114,13 @@ class MesonGenerator(Generator):
         """
         return self.data.build_file.parent / self.data.build_directory
 
-    def _ensure_setup(self) -> None:
+    def _ensure_setup(self, configuration: str | None = None) -> None:
         """Ensure the meson build directory is configured.
 
         Runs ``meson setup`` if the build directory doesn't exist yet,
         or ``meson setup --reconfigure`` if it does.
         """
-        build_dir = self._build_dir()
+        build_dir = self._effective_build_dir(configuration)
         source_dir = self.data.build_file.parent
 
         cmd = [self._meson_command(), 'setup']
@@ -149,10 +159,18 @@ class MesonGenerator(Generator):
         Args:
             configuration: Optional build directory name override.
         """
-        self._ensure_setup()
+        self._ensure_setup(configuration)
         build_dir = self._effective_build_dir(configuration)
         cmd = [self._meson_command(), 'compile', '-C', str(build_dir)]
         run_subprocess(cmd, cwd=self.data.build_file.parent, logger=logger)
+
+    def configure(self, configuration: str | None = None) -> None:
+        """Configures the project using Meson's setup command.
+
+        Args:
+            configuration: Optional build directory name override.
+        """
+        self._ensure_setup(configuration)
 
     def test(self, configuration: str | None = None) -> None:
         """Runs tests using meson test.

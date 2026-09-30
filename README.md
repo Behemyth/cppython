@@ -7,10 +7,10 @@ A transparent Python management solution for C++ dependencies and building.
 
 ## Goals
 
-1. **CLI**: Provide imperative commands (`build`, `test`, `bench`, `run`, `install`) for managing C++ projects within a Python ecosystem.
+1. **CLI**: Provide imperative commands (`configure`, `build`, `test`, `bench`, `run`, `install`) for managing C++ projects within a Python ecosystem.
 2. **Plugin Architecture**: Support pluggable generators (CMake, Meson) and providers (Conan, vcpkg) so users can mix and match toolchains.
 3. **PEP 517 Build Backend**: Act as a transparent build backend that delegates to scikit-build-core or meson-python after ensuring C++ dependencies are in place.
-4. **Build System Consumer**: Be declared directly in `[build-system].requires`, like scikit-build-core, so `pip wheel` and `pdm install` transparently install C++ dependencies alongside Python ones. No host-tool plugin is required.
+4. **Build System Consumer**: Be declared directly in `[build-system].requires`, like scikit-build-core, so package builds install missing native dependencies automatically. Build hooks reuse installed dependencies and leave standalone build-tree configuration to the CLI.
 
 ## Features
 

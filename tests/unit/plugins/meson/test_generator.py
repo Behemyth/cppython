@@ -38,3 +38,22 @@ class TestMesonGenerator(GeneratorUnitTestContract[MesonGenerator]):
             The type of the Generator
         """
         return MesonGenerator
+
+    @staticmethod
+    def test_configure_uses_named_build_directory(plugin: MesonGenerator, mocker: Any) -> None:
+        """Meson configure should set up the selected build directory."""
+        setup_spy = mocker.patch.object(plugin, '_ensure_setup')
+
+        plugin.configure('development')
+
+        setup_spy.assert_called_once_with('development')
+
+    @staticmethod
+    def test_build_sets_up_the_selected_directory(plugin: MesonGenerator, mocker: Any) -> None:
+        """Meson build should configure the same directory it compiles."""
+        mocker.patch('cppython.plugins.meson.plugin.run_subprocess')
+        setup_spy = mocker.patch.object(plugin, '_ensure_setup')
+
+        plugin.build('development')
+
+        setup_spy.assert_called_once_with('development')

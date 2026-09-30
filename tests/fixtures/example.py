@@ -55,7 +55,7 @@ def fixture_example_runner(
     file_name = request.node.fspath.basename[:-3].replace('test_', '')
 
     # Get the test function name and remove the required 'test_' prefix
-    test_name = request.node.name.replace('test_', '')
+    test_name = request.node.name.split('[', 1)[0].removeprefix('test_')
 
     # Generate the example path from the pytest file and test name
     example_path = root_directory / 'examples' / file_name / test_name

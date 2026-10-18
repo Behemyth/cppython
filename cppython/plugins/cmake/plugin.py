@@ -1,5 +1,7 @@
 """The CMake generator implementation"""
 
+import re
+import subprocess
 from logging import getLogger
 from pathlib import Path
 from typing import Any
@@ -17,12 +19,22 @@ from cppython.core.schema import (
     SyncData,
 )
 from cppython.plugins.cmake.builder import Builder
+from cppython.plugins.cmake.presets import PresetIndex, PresetKind, stale_cache_hint
 from cppython.plugins.cmake.resolution import resolve_cmake_data
 from cppython.plugins.cmake.schema import CMakeSyncData
 from cppython.utility.exception import ConfigurationRequiredError
+from cppython.utility.msvc import developer_environment
 from cppython.utility.subprocess import run_subprocess
 
-logger = getLogger('cppython.cmake')
+logger = getLogger("cppython.cmake")
+
+_CTEST_SUMMARY = re.compile(r"^\d+% tests passed.*$", re.MULTILINE)
+
+
+def ctest_summary(output: str | None) -> str | None:
+    """Return CTest's ``N% tests passed ...`` line from its output."""
+    match = _CTEST_SUMMARY.search(output or "")
+    return match.group(0).strip() if match else None
 
 
 class CMakeGenerator(Generator):
@@ -40,8 +52,10 @@ class CMakeGenerator(Generator):
         self.data = resolve_cmake_data(data, core_data)
         self.builder = Builder()
 
-        self._cppython_preset_directory = self.core_data.cppython_data.tool_path / 'cppython'
-        self._provider_directory = self._cppython_preset_directory / 'providers'
+        self._cppython_preset_directory = (
+            self.core_data.cppython_data.tool_path / "cppython"
+        )
+        self._provider_directory = self._cppython_preset_directory / "providers"
 
     @staticmethod
     def features(directory: Path) -> SupportedFeatures:
@@ -80,7 +94,7 @@ class CMakeGenerator(Generator):
             case CMakeSyncData():
                 self._cppython_preset_directory.mkdir(parents=True, exist_ok=True)
 
-                cppython_preset_file = self._cppython_preset_directory / 'CPPython.json'
+                cppython_preset_file = self._cppython_preset_directory / "CPPython.json"
 
                 project_root = self.core_data.project_data.project_root
 
@@ -98,7 +112,7 @@ class CMakeGenerator(Generator):
                     self.core_data.cppython_data.build_path,
                 )
             case _:
-                raise ValueError('Unsupported sync data type')
+                raise ValueError("Unsupported sync data type")
 
     def _cmake_command(self) -> str:
         """Returns the cmake command to use.
@@ -108,7 +122,7 @@ class CMakeGenerator(Generator):
         """
         if self.data.cmake_binary:
             return str(self.data.cmake_binary)
-        return 'cmake'
+        return "cmake"
 
     def _ctest_command(self) -> str:
         """Returns the ctest command to use.
@@ -120,14 +134,14 @@ class CMakeGenerator(Generator):
         """
         if self.data.cmake_binary:
             # ctest is typically in the same directory as cmake
-            ctest_path = self.data.cmake_binary.parent / 'ctest'
+            ctest_path = self.data.cmake_binary.parent / "ctest"
             if ctest_path.exists():
                 return str(ctest_path)
             # Try with .exe on Windows
-            ctest_exe = self.data.cmake_binary.parent / 'ctest.exe'
+            ctest_exe = self.data.cmake_binary.parent / "ctest.exe"
             if ctest_exe.exists():
                 return str(ctest_exe)
-        return 'ctest'
+        return "ctest"
 
     def _resolve_configuration(self, configuration: str | None) -> str:
         """Resolves the effective CMake preset from CLI argument or default config.
@@ -144,10 +158,33 @@ class CMakeGenerator(Generator):
         effective = configuration or self.data.default_configuration
         if effective is None:
             raise ConfigurationRequiredError(
-                'CMake generator requires a configuration. '
+                "CMake generator requires a configuration. "
                 "Provide --configuration on the CLI or set 'default-configuration' in [tool.cppython.generators.cmake]."
             )
         return effective
+
+    def _preset(
+        self,
+        kind: PresetKind,
+        configuration: str | None,
+        index: PresetIndex | None = None,
+    ) -> str:
+        """Resolve the configuration to the preset of *kind* that CMake should run."""
+        name = self._resolve_configuration(configuration)
+        index = index or PresetIndex(self.core_data.project_data.project_root)
+        preset = index.resolve(kind, name)
+        if preset != name:
+            logger.info("Using %s preset '%s' for '%s'", kind, preset, name)
+        return preset
+
+    def _run(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        """Run a CMake tool from the project root, in the compiler environment when one is needed."""
+        return run_subprocess(
+            cmd,
+            cwd=self.core_data.project_data.project_root,
+            logger=logger,
+            env=developer_environment(),
+        )
 
     def build(self, configuration: str | None = None) -> None:
         """Builds the project using cmake --build with the resolved preset.
@@ -155,39 +192,51 @@ class CMakeGenerator(Generator):
         Args:
             configuration: Optional CMake preset name. Overrides default-configuration from config.
         """
-        preset = self._resolve_configuration(configuration)
-        cmd = [self._cmake_command(), '--build', '--preset', preset]
-        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
+        preset = self._preset("build", configuration)
+        self._run([self._cmake_command(), "--build", "--preset", preset])
 
     def configure(self, configuration: str | None = None) -> None:
         """Configures the project using the resolved CMake configure preset.
 
         Args:
-            configuration: Optional CMake configure preset name.
+            configuration: Optional CMake configure, build or test preset name.
         """
-        preset = self._resolve_configuration(configuration)
-        cmd = [self._cmake_command(), '--preset', preset]
-        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
+        index = PresetIndex(self.core_data.project_data.project_root)
+        preset = self._preset("configure", configuration, index)
+        try:
+            self._run([self._cmake_command(), "--preset", preset])
+        except subprocess.CalledProcessError as error:
+            if hint := stale_cache_hint(index, preset):
+                error.add_note(hint)
+            raise
 
-    def test(self, configuration: str | None = None) -> None:
+    def test(self, configuration: str | None = None) -> str | None:
         """Runs tests using ctest with the resolved preset.
 
         Args:
             configuration: Optional CMake preset name. Overrides default-configuration from config.
-        """
-        preset = self._resolve_configuration(configuration)
-        cmd = [self._ctest_command(), '--preset', preset]
-        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
 
-    def bench(self, configuration: str | None = None) -> None:
+        Returns:
+            CTest's summary line, when it printed one.
+        """
+        preset = self._preset("test", configuration)
+        return ctest_summary(
+            self._run([self._ctest_command(), "--preset", preset]).stdout
+        )
+
+    def bench(self, configuration: str | None = None) -> str | None:
         """Runs benchmarks using ctest with the resolved preset.
 
         Args:
             configuration: Optional CMake preset name. Overrides default-configuration from config.
+
+        Returns:
+            CTest's summary line, when it printed one.
         """
-        preset = self._resolve_configuration(configuration)
-        cmd = [self._ctest_command(), '--preset', preset]
-        run_subprocess(cmd, cwd=self.core_data.project_data.project_root, logger=logger)
+        preset = self._preset("test", configuration)
+        return ctest_summary(
+            self._run([self._ctest_command(), "--preset", preset]).stdout
+        )
 
     def run(self, target: str, configuration: str | None = None) -> None:
         """Runs a built executable by target name.
@@ -204,14 +253,20 @@ class CMakeGenerator(Generator):
         build_path = self.core_data.cppython_data.build_path
 
         # Search for the executable in the build directory
-        candidates = list(build_path.rglob(target)) + list(build_path.rglob(f'{target}.exe'))
+        candidates = list(build_path.rglob(target)) + list(
+            build_path.rglob(f"{target}.exe")
+        )
         executables = [c for c in candidates if c.is_file()]
 
         if not executables:
-            raise FileNotFoundError(f"Could not find executable '{target}' in build directory: {build_path}")
+            raise FileNotFoundError(
+                f"Could not find executable '{target}' in build directory: {build_path}"
+            )
 
         executable = executables[0]
-        run_subprocess([str(executable)], cwd=self.data.preset_file.parent, logger=logger)
+        run_subprocess(
+            [str(executable)], cwd=self.data.preset_file.parent, logger=logger
+        )
 
     def list_targets(self) -> list[str]:
         """Lists discovered build targets/executables in the CMake build directory.
@@ -229,8 +284,10 @@ class CMakeGenerator(Generator):
 
         # Collect executable files from the build directory
         targets: set[str] = set()
-        for candidate in build_path.rglob('*'):
-            if candidate.is_file() and (candidate.stat().st_mode & 0o111 or candidate.suffix == '.exe'):
+        for candidate in build_path.rglob("*"):
+            if candidate.is_file() and (
+                candidate.stat().st_mode & 0o111 or candidate.suffix == ".exe"
+            ):
                 # Use the stem (name without extension) as the target name
                 targets.add(candidate.stem)
 
@@ -242,16 +299,16 @@ class CMakeGenerator(Generator):
         Returns:
             A :class:`PluginReport` with CMake-specific details.
         """
-        managed = [self._cppython_preset_directory / 'CPPython.json']
+        managed = [self._cppython_preset_directory / "CPPython.json"]
 
         config: dict[str, object] = {
-            'preset_file': str(self.data.preset_file),
-            'configuration_name': self.data.configuration_name,
+            "preset_file": str(self.data.preset_file),
+            "configuration_name": self.data.configuration_name,
         }
         if self.data.cmake_binary is not None:
-            config['cmake_binary'] = str(self.data.cmake_binary)
+            config["cmake_binary"] = str(self.data.cmake_binary)
         if self.data.default_configuration is not None:
-            config['default_configuration'] = self.data.default_configuration
+            config["default_configuration"] = self.data.default_configuration
 
         return PluginReport(
             configuration=config,

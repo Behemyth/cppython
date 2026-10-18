@@ -54,20 +54,26 @@ class API(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
-    def test(self, configuration: str | None = None) -> None:
+    def test(self, configuration: str | None = None) -> str | None:
         """Runs project tests
 
         Args:
             configuration: Optional named configuration to use. Interpretation is generator-specific.
+
+        Returns:
+            A one-line result summary, if the generator reports one.
         """
         raise NotImplementedError()
 
     @abstractmethod
-    def bench(self, configuration: str | None = None) -> None:
+    def bench(self, configuration: str | None = None) -> str | None:
         """Runs project benchmarks
 
         Args:
             configuration: Optional named configuration to use. Interpretation is generator-specific.
+
+        Returns:
+            A one-line result summary, if the generator reports one.
         """
         raise NotImplementedError()
 

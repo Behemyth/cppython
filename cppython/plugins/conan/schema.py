@@ -22,48 +22,52 @@ class ConanVersion(CPPythonModel):
     patch: int | None = None
     prerelease: str | None = None
 
-    @field_validator('major', 'minor', mode='before')  # type: ignore
+    @field_validator("major", "minor", mode="before")  # type: ignore
     @classmethod
     def validate_version_parts(cls, v: int) -> int:
         """Validate version parts are non-negative integers."""
         if v < 0:
-            raise ValueError('Version parts must be non-negative')
+            raise ValueError("Version parts must be non-negative")
         return v
 
-    @field_validator('patch', mode='before')  # type: ignore
+    @field_validator("patch", mode="before")  # type: ignore
     @classmethod
     def validate_patch(cls, v: int | None) -> int | None:
         """Validate patch is non-negative integer or None."""
         if v is not None and v < 0:
-            raise ValueError('Version parts must be non-negative')
+            raise ValueError("Version parts must be non-negative")
         return v
 
-    @field_validator('prerelease', mode='before')  # type: ignore
+    @field_validator("prerelease", mode="before")  # type: ignore
     @classmethod
     def validate_prerelease(cls, v: str | None) -> str | None:
         """Validate prerelease is not an empty string."""
         if v is not None and not v.strip():
-            raise ValueError('Pre-release cannot be empty string')
+            raise ValueError("Pre-release cannot be empty string")
         return v
 
     def __str__(self) -> str:
         """String representation of the version."""
-        version = f'{self.major}.{self.minor}.{self.patch}' if self.patch is not None else f'{self.major}.{self.minor}'
+        version = (
+            f"{self.major}.{self.minor}.{self.patch}"
+            if self.patch is not None
+            else f"{self.major}.{self.minor}"
+        )
 
         if self.prerelease:
-            version += f'-{self.prerelease}'
+            version += f"-{self.prerelease}"
         return version
 
     @classmethod
     def from_string(cls, version_str: str) -> ConanVersion:
         """Parse a version string into a ConanVersion."""
-        if '-' in version_str:
-            version_part, prerelease = version_str.split('-', 1)
+        if "-" in version_str:
+            version_part, prerelease = version_str.split("-", 1)
         else:
             version_part = version_str
             prerelease = None
 
-        parts = version_part.split('.')
+        parts = version_part.split(".")
 
         # Parse parts based on what's actually provided
         MAJOR_INDEX = 0
@@ -87,28 +91,30 @@ class ConanVersionRange(CPPythonModel):
 
     expression: str
 
-    @field_validator('expression')  # type: ignore
+    @field_validator("expression")  # type: ignore
     @classmethod
     def validate_expression(cls, v: str) -> str:
         """Validate the version range expression contains valid operators."""
         if not v.strip():
-            raise ValueError('Version range expression cannot be empty')
+            raise ValueError("Version range expression cannot be empty")
 
         # Basic validation - ensure it contains valid operators
-        valid_operators = {'>=', '>', '<=', '<', '!=', '~', '||', '&&'}
+        valid_operators = {">=", ">", "<=", "<", "!=", "~", "||", "&&"}
 
         # Split by spaces and logical operators to get individual components
-        tokens = re.split(r'(\|\||&&|\s+)', v)
+        tokens = re.split(r"(\|\||&&|\s+)", v)
 
         for token in tokens:
             current_token = token.strip()
-            if not current_token or current_token in {'||', '&&'}:
+            if not current_token or current_token in {"||", "&&"}:
                 continue
 
             # Check if token starts with a valid operator
-            has_valid_operator = any(current_token.startswith(op) for op in valid_operators)
+            has_valid_operator = any(
+                current_token.startswith(op) for op in valid_operators
+            )
             if not has_valid_operator:
-                raise ValueError(f'Invalid operator in version range: {current_token}')
+                raise ValueError(f"Invalid operator in version range: {current_token}")
 
         return v
 
@@ -123,27 +129,27 @@ class ConanUserChannel(CPPythonModel):
     user: str
     channel: str | None = None
 
-    @field_validator('user')  # type: ignore
+    @field_validator("user")  # type: ignore
     @classmethod
     def validate_user(cls, v: str) -> str:
         """Validate user is not empty."""
         if not v.strip():
-            raise ValueError('User cannot be empty')
+            raise ValueError("User cannot be empty")
         return v.strip()
 
-    @field_validator('channel')  # type: ignore
+    @field_validator("channel")  # type: ignore
     @classmethod
     def validate_channel(cls, v: str | None) -> str | None:
         """Validate channel is not an empty string."""
         if v is not None and not v.strip():
-            raise ValueError('Channel cannot be empty string')
+            raise ValueError("Channel cannot be empty string")
         return v.strip() if v else None
 
     def __str__(self) -> str:
         """String representation for use in requires()."""
         if self.channel:
-            return f'{self.user}/{self.channel}'
-        return f'{self.user}/_'
+            return f"{self.user}/{self.channel}"
+        return f"{self.user}/_"
 
 
 class ConanRevision(CPPythonModel):
@@ -151,12 +157,12 @@ class ConanRevision(CPPythonModel):
 
     revision: str
 
-    @field_validator('revision')  # type: ignore
+    @field_validator("revision")  # type: ignore
     @classmethod
     def validate_revision(cls, v: str) -> str:
         """Validate revision is not empty."""
         if not v.strip():
-            raise ValueError('Revision cannot be empty')
+            raise ValueError("Revision cannot be empty")
         return v.strip()
 
     def __str__(self) -> str:
@@ -203,18 +209,18 @@ class ConanDependency(CPPythonModel):
         # Add version or version range
         if self.version_range:
             # Complex version range
-            result += f'/[{self.version_range}]'
+            result += f"/[{self.version_range}]"
         elif self.version:
             # Simple version (can include pre-release suffixes)
-            result += f'/{self.version}'
+            result += f"/{self.version}"
 
         # Add user/channel
         if self.user_channel:
-            result += f'@{self.user_channel}'
+            result += f"@{self.user_channel}"
 
         # Add revision
         if self.revision:
-            result += f'#{self.revision}'
+            result += f"#{self.revision}"
 
         return result
 
@@ -231,17 +237,17 @@ class ConanDependency(CPPythonModel):
         """
         # Split revision first (everything after #)
         revision_obj = None
-        if '#' in reference:
-            reference, revision_str = reference.rsplit('#', 1)
+        if "#" in reference:
+            reference, revision_str = reference.rsplit("#", 1)
             revision_obj = ConanRevision(revision=revision_str)
 
         # Split user/channel (everything after @)
         user_channel_obj = None
-        if '@' in reference:
-            reference, user_channel_str = reference.rsplit('@', 1)
-            if '/' in user_channel_str:
-                user, channel = user_channel_str.split('/', 1)
-                if channel == '_':
+        if "@" in reference:
+            reference, user_channel_str = reference.rsplit("@", 1)
+            if "/" in user_channel_str:
+                user, channel = user_channel_str.split("/", 1)
+                if channel == "_":
                     channel = None
             else:
                 user = user_channel_str
@@ -253,12 +259,14 @@ class ConanDependency(CPPythonModel):
         version_obj = None
         version_range_obj = None
 
-        if '/' in reference:
-            name, version_part = reference.split('/', 1)
+        if "/" in reference:
+            name, version_part = reference.split("/", 1)
 
             # Check if it's a version range (enclosed in brackets)
-            if version_part.startswith('[') and version_part.endswith(']'):
-                version_range_obj = ConanVersionRange(expression=version_part[1:-1])  # Remove brackets
+            if version_part.startswith("[") and version_part.endswith("]"):
+                version_range_obj = ConanVersionRange(
+                    expression=version_part[1:-1]
+                )  # Remove brackets
             else:
                 version_obj = ConanVersion.from_string(version_part)
 
@@ -278,13 +286,19 @@ class ConanDependency(CPPythonModel):
         """
         # Check version object for pre-release
         if self.version and self.version.prerelease:
-            prerelease_keywords = {'alpha', 'beta', 'rc', 'dev', 'pre', 'snapshot'}
-            return any(keyword in self.version.prerelease.lower() for keyword in prerelease_keywords)
+            prerelease_keywords = {"alpha", "beta", "rc", "dev", "pre", "snapshot"}
+            return any(
+                keyword in self.version.prerelease.lower()
+                for keyword in prerelease_keywords
+            )
 
         # Also check version_range for pre-release patterns
-        if self.version_range and '-' in self.version_range.expression:
-            prerelease_keywords = {'alpha', 'beta', 'rc', 'dev', 'pre', 'snapshot'}
-            return any(keyword in self.version_range.expression.lower() for keyword in prerelease_keywords)
+        if self.version_range and "-" in self.version_range.expression:
+            prerelease_keywords = {"alpha", "beta", "rc", "dev", "pre", "snapshot"}
+            return any(
+                keyword in self.version_range.expression.lower()
+                for keyword in prerelease_keywords
+            )
 
         return False
 
@@ -296,6 +310,7 @@ class ConanData(CPPythonModel):
     skip_upload: bool
     profile_dir: Path
     build_types: list[str]
+    settings: dict[str, str] = {}
 
 
 class ConanfileGenerationData(CPPythonModel):
@@ -315,27 +330,39 @@ class ConanConfiguration(CPPythonModel):
 
     remotes: Annotated[
         list[str],
-        Field(description='List of remotes to upload to. If empty, uploads to all available remotes.'),
-    ] = ['conancenter']
+        Field(
+            description="List of remotes to upload to. If empty, uploads to all available remotes."
+        ),
+    ] = ["conancenter"]
     skip_upload: Annotated[
         bool,
-        Field(description='If true, skip uploading packages to a remote during publishing.'),
+        Field(
+            description="If true, skip uploading packages to a remote during publishing."
+        ),
     ] = False
     profile_dir: Annotated[
         str,
         Field(
-            description='Directory containing Conan profiles. Profiles will be looked up relative to this directory. '
-            'If profiles do not exist in this directory, Conan will fall back to default profiles. '
+            description="Directory containing Conan profiles. Profiles will be looked up relative to this directory. "
+            "If profiles do not exist in this directory, Conan will fall back to default profiles. "
             "If a relative path is provided, it will be resolved relative to the tool's working directory."
         ),
-    ] = 'profiles'
+    ] = "profiles"
     build_types: Annotated[
         list[str],
         Field(
-            alias='build-types',
-            description='List of CMake build types to install dependencies for. '
-            'For multi-config generators (Visual Studio), use both Release and Debug. '
-            'For single-config generators or build backends like scikit-build-core, '
+            alias="build-types",
+            description="List of CMake build types to install dependencies for. "
+            "For multi-config generators (Visual Studio), use both Release and Debug. "
+            "For single-config generators or build backends like scikit-build-core, "
             'use only the build type you need (e.g., ["Release"]).',
         ),
-    ] = ['Release', 'Debug']
+    ] = ["Release", "Debug"]
+    settings: Annotated[
+        dict[str, str],
+        Field(
+            description="Conan settings passed to every install and create as `-s key=value`, overriding the "
+            "detected profile. Use it to build dependencies for the project's language standard, "
+            'e.g. {"compiler.cppstd" = "23"}.',
+        ),
+    ] = {}

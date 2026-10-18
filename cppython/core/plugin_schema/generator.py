@@ -95,20 +95,26 @@ class Generator(DataPlugin, SyncConsumer, Protocol):
         raise NotImplementedError
 
     @abstractmethod
-    def test(self, configuration: str | None = None) -> None:
+    def test(self, configuration: str | None = None) -> str | None:
         """Runs tests using the generator's build system.
 
         Args:
             configuration: Optional named configuration override.
+
+        Returns:
+            A one-line result summary to show the user, if the tool reports one.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def bench(self, configuration: str | None = None) -> None:
+    def bench(self, configuration: str | None = None) -> str | None:
         """Runs benchmarks using the generator's build system.
 
         Args:
             configuration: Optional named configuration override.
+
+        Returns:
+            A one-line result summary to show the user, if the tool reports one.
         """
         raise NotImplementedError
 

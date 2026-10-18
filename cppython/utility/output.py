@@ -20,13 +20,17 @@ and whose :meth:`spinner` returns a silent no-op context manager.
 
 import contextlib
 import logging
+import subprocess
 import tempfile
 from pathlib import Path
 from types import TracebackType
 from typing import Protocol
 
 from rich.console import Console
+from rich.markup import escape
 from rich.status import Status
+
+from cppython.utility.exception import ProviderInstallationError
 
 # ---------------------------------------------------------------------------
 # Spinner
@@ -56,9 +60,9 @@ class SpinnerContext:
     def __enter__(self) -> SpinnerContext:
         """Start the spinner or print the phase header in verbose mode."""
         if self._verbose:
-            self._console.print(f'[bold]> {self._description}[/bold]')
+            self._console.print(f"[bold]> {self._description}[/bold]")
         else:
-            self._status = self._console.status(self._description, spinner='dots')
+            self._status = self._console.status(self._description, spinner="dots")
             self._status.start()
         return self
 
@@ -76,7 +80,7 @@ class SpinnerContext:
     def update(self, message: str) -> None:
         """Change the spinner / status text."""
         if self._verbose:
-            self._console.print(f'  {message}')
+            self._console.print(f"  {message}")
         elif self._status is not None:
             self._status.update(message)
 
@@ -89,7 +93,9 @@ class SpinnerContext:
 class SessionProtocol(Protocol):
     """Minimal interface that :class:`Project` depends on."""
 
-    def spinner(self, description: str) -> contextlib.AbstractContextManager[SpinnerContext | None]:
+    def spinner(
+        self, description: str
+    ) -> contextlib.AbstractContextManager[SpinnerContext | None]:
         """Return a context manager that optionally shows a spinner."""
         ...
 
@@ -150,20 +156,24 @@ class OutputSession:
     def __enter__(self) -> OutputSession:
         """Enter the session: create the log file and configure logging."""
         # Create the session log file
-        fd = tempfile.NamedTemporaryFile(  # noqa: SIM115
-            mode='w',
-            suffix='.log',
-            prefix='cppython-',
+        fd = tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".log",
+            prefix="cppython-",
             delete=False,
         )
         self._log_path = Path(fd.name)
         fd.close()  # We'll let the FileHandler manage the FD
 
         # Attach a file handler to the root cppython logger
-        root_logger = logging.getLogger('cppython')
-        self._file_handler = logging.FileHandler(str(self._log_path), mode='w', encoding='utf-8')
+        root_logger = logging.getLogger("cppython")
+        self._file_handler = logging.FileHandler(
+            str(self._log_path), mode="w", encoding="utf-8"
+        )
         self._file_handler.setLevel(logging.DEBUG)
-        self._file_handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
+        self._file_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+        )
         root_logger.addHandler(self._file_handler)
 
         # Ensure the root logger level is low enough to let DEBUG through to the file
@@ -189,7 +199,7 @@ class OutputSession:
         exc_tb: TracebackType | None,
     ) -> None:
         """Tear down logging, restore handlers, and print the session summary."""
-        root_logger = logging.getLogger('cppython')
+        root_logger = logging.getLogger("cppython")
 
         # Remove and close the file handler
         if self._file_handler is not None:
@@ -208,13 +218,51 @@ class OutputSession:
             self._original_level = None
 
         # Print the result
-        if exc_type is not None:
-            self._console.print(f'[bold red]Error:[/bold red] {exc_val}')
+        if isinstance(exc_val, subprocess.CalledProcessError):
+            self._print_failure(
+                f"command exited with status {exc_val.returncode}",
+                exc_val.cmd,
+                (exc_val.stdout, exc_val.stderr),
+            )
+        elif isinstance(exc_val, ProviderInstallationError) and exc_val.command:
+            self._print_failure(str(exc_val), exc_val.command, (exc_val.output,))
+        elif exc_type is not None:
+            self._console.print(f"[bold red]Error:[/bold red] {exc_val}")
         else:
-            self._console.print('[bold green]Done[/bold green]')
+            self._console.print("[bold green]Done[/bold green]")
+
+        for note in getattr(exc_val, "__notes__", ()):
+            self._console.print(
+                f"[bold yellow]Hint:[/bold yellow] {escape(note)}", highlight=False
+            )
 
         if self._log_path is not None:
-            self._console.print(f'Full log: {self._log_path}')
+            self._console.print(f"Full log: {self._log_path}")
+
+    def _print_failure(
+        self,
+        headline: str,
+        command: object,
+        streams: tuple[object, ...],
+        tail: int = 20,
+    ) -> None:
+        """Print the failed command and the end of its output."""
+        command_text = (
+            " ".join(str(part) for part in command)
+            if isinstance(command, list | tuple)
+            else str(command)
+        )
+        self._console.print(f"[bold red]Error:[/bold red] {headline}", highlight=False)
+        self._console.print(f"  {command_text}", markup=False, highlight=False)
+        lines = [
+            line
+            for stream in streams
+            if isinstance(stream, str)
+            for line in stream.splitlines()
+            if line
+        ]
+        for line in lines[-tail:]:
+            self._console.print(f"  | {line}", markup=False, highlight=False)
 
     # -- public API ---------------------------------------------------------
 

@@ -10,13 +10,24 @@ from cppython.core.schema import CorePluginData
 from cppython.plugins.cmake.schema import CMakeConfiguration, CMakeData
 
 
-def _resolve_cmake_binary(configured_path: Path | None) -> Path | None:
+def _packaged_cmake() -> Path | None:
+    """Return the CMake shipped by the ``cmake`` PyPI package, if installed."""
+    try:
+        import cmake
+    except ImportError:
+        return None
+    binary = shutil.which("cmake", path=cmake.CMAKE_BIN_DIR)
+    return Path(binary) if binary else None
+
+
+def resolve_cmake_binary(configured_path: Path | None) -> Path | None:
     """Resolve the cmake binary path with validation.
 
     Resolution order:
     1. CMAKE_BINARY environment variable (highest priority)
     2. Configured path from cmake_binary setting
-    3. cmake from PATH (fallback)
+    3. cmake installed with CPPython's ``cmake`` extra
+    4. cmake from PATH (fallback)
 
     If a path is specified (via env or config) but doesn't exist,
     a warning is logged and we fall back to PATH lookup.
@@ -27,15 +38,15 @@ def _resolve_cmake_binary(configured_path: Path | None) -> Path | None:
     Returns:
         Resolved cmake path, or None if not found anywhere
     """
-    logger = logging.getLogger('cppython.cmake')
+    logger = logging.getLogger("cppython.cmake")
 
     # Environment variable takes precedence
-    if env_binary := os.environ.get('CMAKE_BINARY'):
+    if env_binary := os.environ.get("CMAKE_BINARY"):
         env_path = Path(env_binary)
         if env_path.exists():
             return env_path
         logger.warning(
-            'CMAKE_BINARY environment variable points to non-existent path: %s. Falling back to PATH lookup.',
+            "CMAKE_BINARY environment variable points to non-existent path: %s. Falling back to PATH lookup.",
             env_binary,
         )
 
@@ -44,12 +55,15 @@ def _resolve_cmake_binary(configured_path: Path | None) -> Path | None:
         if configured_path.exists():
             return configured_path
         logger.warning(
-            'Configured cmake_binary path does not exist: %s. Falling back to PATH lookup.',
+            "Configured cmake_binary path does not exist: %s. Falling back to PATH lookup.",
             configured_path,
         )
 
+    if packaged := _packaged_cmake():
+        return packaged
+
     # Fall back to PATH lookup
-    if cmake_in_path := shutil.which('cmake'):
+    if cmake_in_path := shutil.which("cmake"):
         return Path(cmake_in_path)
 
     return None
@@ -74,7 +88,7 @@ def resolve_cmake_data(data: dict[str, Any], core_data: CorePluginData) -> CMake
         modified_preset_file = root_directory / modified_preset_file
 
     # Resolve cmake binary: environment variable takes precedence over configuration
-    cmake_binary = _resolve_cmake_binary(parsed_data.cmake_binary)
+    cmake_binary = resolve_cmake_binary(parsed_data.cmake_binary)
 
     return CMakeData(
         preset_file=modified_preset_file,

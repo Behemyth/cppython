@@ -16,16 +16,35 @@ from conan.api.conan_api import ConanAPI
 from conan.cli.cli import Cli
 
 from cppython.core.plugin_schema.generator import SyncConsumer
-from cppython.core.plugin_schema.provider import Provider, ProviderPluginGroupData, SupportedProviderFeatures
-from cppython.core.schema import CorePluginData, Information, PluginReport, SupportedFeatures, SyncData
+from cppython.core.plugin_schema.provider import (
+    Provider,
+    ProviderPluginGroupData,
+    SupportedProviderFeatures,
+)
+from cppython.core.schema import (
+    CorePluginData,
+    Information,
+    PluginReport,
+    SupportedFeatures,
+    SyncData,
+)
+from cppython.plugins.cmake.experimental import IMPORT_STD_VARIABLE, import_std_uuid
 from cppython.plugins.cmake.plugin import CMakeGenerator
+from cppython.plugins.cmake.resolution import resolve_cmake_binary
 from cppython.plugins.cmake.schema import CMakeSyncData
 from cppython.plugins.conan.builder import Builder
-from cppython.plugins.conan.resolution import resolve_conan_data, resolve_conan_dependency
+from cppython.plugins.conan.resolution import (
+    resolve_conan_data,
+    resolve_conan_dependency,
+)
 from cppython.plugins.conan.schema import ConanData, ConanfileGenerationData
 from cppython.plugins.meson.plugin import MesonGenerator
 from cppython.plugins.meson.schema import MesonSyncData
-from cppython.utility.exception import InstallationVerificationError, NotSupportedError, ProviderInstallationError
+from cppython.utility.exception import (
+    InstallationVerificationError,
+    NotSupportedError,
+    ProviderInstallationError,
+)
 from cppython.utility.utility import TypeName
 
 
@@ -33,7 +52,10 @@ class ConanProvider(Provider):
     """Conan Provider"""
 
     def __init__(
-        self, group_data: ProviderPluginGroupData, core_data: CorePluginData, configuration_data: dict[str, Any]
+        self,
+        group_data: ProviderPluginGroupData,
+        core_data: CorePluginData,
+        configuration_data: dict[str, Any],
     ) -> None:
         """Initializes the provider"""
         self.group_data: ProviderPluginGroupData = group_data
@@ -50,7 +72,7 @@ class ConanProvider(Provider):
         self._ensure_default_profiles()
 
         self._cmake_binary: str | None = None
-        self._logger = getLogger('cppython.conan')
+        self._logger = getLogger("cppython.conan")
 
     def _capture_conan_call(self, args: list[str]) -> None:
         """Run a Conan CLI command while capturing stdout/stderr to the logger.
@@ -59,34 +81,34 @@ class ConanProvider(Provider):
             args: Command arguments to pass to ``conan_api.command.run``.
 
         Raises:
-            Exception: Re-raises any exception from the Conan API after logging.
+            ProviderInstallationError: If the command fails; carries the command and its output.
         """
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
 
         try:
-            with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
+            with (
+                contextlib.redirect_stdout(stdout_capture),
+                contextlib.redirect_stderr(stderr_capture),
+            ):
                 self._conan_api.command.run(args)
-        except Exception:
-            # Log captured output before re-raising
-            captured_out = stdout_capture.getvalue()
-            captured_err = stderr_capture.getvalue()
-            if captured_out:
-                for line in captured_out.splitlines():
-                    self._logger.error('%s', line)
-            if captured_err:
-                for line in captured_err.splitlines():
-                    self._logger.error('%s', line)
-            raise
+        except Exception as error:
+            captured = (stdout_capture.getvalue(), stderr_capture.getvalue())
+            output = "\n".join(text.rstrip("\n") for text in captured if text)
+            for line in output.splitlines():
+                self._logger.error("%s", line)
+            raise ProviderInstallationError(
+                "conan", str(error), error, command=["conan", *args], output=output
+            ) from error
         else:
             captured_out = stdout_capture.getvalue()
             captured_err = stderr_capture.getvalue()
             if captured_out:
                 for line in captured_out.splitlines():
-                    self._logger.debug('%s', line)
+                    self._logger.debug("%s", line)
             if captured_err:
                 for line in captured_err.splitlines():
-                    self._logger.debug('%s', line)
+                    self._logger.debug("%s", line)
 
     @staticmethod
     def features(directory: Path) -> SupportedFeatures:
@@ -109,7 +131,9 @@ class ConanProvider(Provider):
         """
         return Information()
 
-    def _install_dependencies(self, *, update: bool = False, groups: list[str] | None = None) -> None:
+    def _install_dependencies(
+        self, *, update: bool = False, groups: list[str] | None = None
+    ) -> None:
         """Install/update dependencies using Conan CLI.
 
         Args:
@@ -117,22 +141,28 @@ class ConanProvider(Provider):
                    If False, use cached versions when available.
             groups: Optional list of dependency group names to include
         """
-        operation = 'update' if update else 'install'
-        logger = getLogger('cppython.conan')
+        operation = "update" if update else "install"
+        logger = getLogger("cppython.conan")
 
         try:
             # Setup environment and generate conanfile
             conanfile_path = self._prepare_installation(groups=groups)
         except Exception as e:
-            raise ProviderInstallationError('conan', f'Failed to prepare {operation} environment: {e}', e) from e
+            raise ProviderInstallationError(
+                "conan", f"Failed to prepare {operation} environment: {e}", e
+            ) from e
 
         try:
             build_types = self.data.build_types
             for build_type in build_types:
-                logger.info('Installing dependencies for build type: %s', build_type)
+                logger.info("Installing dependencies for build type: %s", build_type)
                 self._run_conan_install(conanfile_path, update, build_type, logger)
+        except ProviderInstallationError:
+            raise
         except Exception as e:
-            raise ProviderInstallationError('conan', f'Failed to install dependencies: {e}', e) from e
+            raise ProviderInstallationError(
+                "conan", f"Failed to install dependencies: {e}", e
+            ) from e
 
     def _prepare_installation(self, groups: list[str] | None = None) -> Path:
         """Prepare the installation environment and generate conanfile.
@@ -144,7 +174,10 @@ class ConanProvider(Provider):
             Path to conanfile.py
         """
         # Resolve base dependencies
-        resolved_dependencies = [resolve_conan_dependency(req) for req in self.core_data.cppython_data.dependencies]
+        resolved_dependencies = [
+            resolve_conan_dependency(req)
+            for req in self.core_data.cppython_data.dependencies
+        ]
 
         # Resolve only the requested dependency groups
         resolved_dependency_groups = {}
@@ -153,7 +186,9 @@ class ConanProvider(Provider):
                 if group_name in self.core_data.cppython_data.dependency_groups:
                     resolved_dependency_groups[group_name] = [
                         resolve_conan_dependency(req)
-                        for req in self.core_data.cppython_data.dependency_groups[group_name]
+                        for req in self.core_data.cppython_data.dependency_groups[
+                            group_name
+                        ]
                     ]
 
         generation_data = ConanfileGenerationData(
@@ -173,10 +208,10 @@ class ConanProvider(Provider):
 
         # Setup paths
         project_root = self.core_data.project_data.project_root
-        conanfile_path = project_root / 'conanfile.py'
+        conanfile_path = project_root / "conanfile.py"
 
         if not conanfile_path.exists():
-            raise FileNotFoundError('Generated conanfile.py not found')
+            raise FileNotFoundError("Generated conanfile.py not found")
 
         return conanfile_path
 
@@ -187,9 +222,33 @@ class ConanProvider(Provider):
             self._conan_api.profiles.get_default_build()
         except Exception:
             # If profiles don't exist, create them using profile detect
-            self._conan_api.command.run(['profile', 'detect'])
+            self._conan_api.command.run(["profile", "detect"])
 
-    def _run_conan_install(self, conanfile_path: Path, update: bool, build_type: str, logger: Logger) -> None:
+    def _settings_args(self, build_type: str | None) -> list[str]:
+        """Return ``-s`` arguments for the configured settings and *build_type*."""
+        settings = dict(self.data.settings)
+        if build_type:
+            settings["build_type"] = build_type
+        return [
+            arg for key, value in settings.items() for arg in ("-s", f"{key}={value}")
+        ]
+
+    def _import_std_args(self) -> list[str]:
+        """Return the toolchain config enabling ``import std`` for the CMake that will run."""
+        cmake = (
+            Path(self._cmake_binary)
+            if self._cmake_binary
+            else resolve_cmake_binary(None)
+        )
+        uuid = import_std_uuid(cmake)
+        return [
+            "-c",
+            f"tools.cmake.cmaketoolchain:extra_variables={{'{IMPORT_STD_VARIABLE}': '{uuid}'}}",
+        ]
+
+    def _run_conan_install(
+        self, conanfile_path: Path, update: bool, build_type: str, logger: Logger
+    ) -> None:
         """Run conan install command using Conan API with optional build type.
 
         Args:
@@ -199,42 +258,42 @@ class ConanProvider(Provider):
             logger: Logger instance
         """
         # Build conan install command arguments
-        command_args = ['install', str(conanfile_path)]
+        command_args = ["install", str(conanfile_path)]
 
         # Use build_path as the output folder directly
         output_folder = self.core_data.cppython_data.build_path
-        command_args.extend(['--output-folder', str(output_folder)])
+        command_args.extend(["--output-folder", str(output_folder)])
 
         # Add build missing flag
-        command_args.extend(['--build', 'missing'])
+        command_args.extend(["--build", "missing"])
 
         # Add update flag if needed
         if update:
-            command_args.append('--update')
+            command_args.append("--update")
 
-        # Add build type setting if specified
-        if build_type:
-            command_args.extend(['-s', f'build_type={build_type}'])
+        command_args.extend(self._settings_args(build_type))
         # Enable CMakeConfigDeps (the modern CMake config-mode generator)
-        command_args.extend(['-c', 'tools.cmake.cmakedeps:new=will_break_next'])
+        command_args.extend(["-c", "tools.cmake.cmakedeps:new=will_break_next"])
+
+        # Match create(): only Ninja Multi-Config supports C++ modules and 'import std;'
+        command_args.extend(
+            ["-c", "tools.cmake.cmaketoolchain:generator=Ninja Multi-Config"]
+        )
 
         # Enable 'import std;' support by providing the experimental UUID in the toolchain
         # The UUID must be in the toolchain file (before try_compile block) so compiler
         # detection can create __CMAKE::CXX23 for projects using 'import std;'
-        command_args.extend(
-            [
-                '-c',
-                'tools.cmake.cmaketoolchain:extra_variables={'
-                "'CMAKE_EXPERIMENTAL_CXX_IMPORT_STD': 'd0edc3af-4c50-42ea-a356-e2862fe7a444'"
-                '}',
-            ]
-        )
+        command_args.extend(self._import_std_args())
 
         # Add cmake binary configuration if specified
         if self._cmake_binary:
             # Quote the path if it contains spaces
-            cmake_path = f'"{self._cmake_binary}"' if ' ' in self._cmake_binary else self._cmake_binary
-            command_args.extend(['-c', f'tools.cmake:cmake_program={cmake_path}'])
+            cmake_path = (
+                f'"{self._cmake_binary}"'
+                if " " in self._cmake_binary
+                else self._cmake_binary
+            )
+            command_args.extend(["-c", f"tools.cmake:cmake_program={cmake_path}"])
 
         try:
             # Use reusable Conan API instance instead of subprocess
@@ -245,10 +304,12 @@ class ConanProvider(Provider):
                 self._capture_conan_call(command_args)
             finally:
                 os.chdir(original_cwd)
+        except ProviderInstallationError:
+            raise
         except Exception as e:
             error_msg = str(e)
-            logger.error('Conan install failed: %s', error_msg, exc_info=True)
-            raise ProviderInstallationError('conan', error_msg, e) from e
+            logger.error("Conan install failed: %s", error_msg, exc_info=True)
+            raise ProviderInstallationError("conan", error_msg, e) from e
 
     def verify_installed(self) -> None:
         """Verify that Conan-generated artifacts exist on disk.
@@ -259,23 +320,23 @@ class ConanProvider(Provider):
         Raises:
             InstallationVerificationError: If expected artifacts are missing
         """
-        generators_path = self.core_data.cppython_data.build_path / 'generators'
+        generators_path = self.core_data.cppython_data.build_path / "generators"
         missing: list[str] = []
 
         if not generators_path.is_dir():
-            missing.append(f'generators directory ({generators_path})')
+            missing.append(f"generators directory ({generators_path})")
         else:
             # Check for at least one of the expected toolchain files
-            cmake_toolchain = generators_path / 'conan_toolchain.cmake'
-            meson_native = generators_path / 'conan_meson_native.ini'
+            cmake_toolchain = generators_path / "conan_toolchain.cmake"
+            meson_native = generators_path / "conan_meson_native.ini"
 
             if not cmake_toolchain.exists() and not meson_native.exists():
                 missing.append(
-                    f'toolchain files in {generators_path} (expected conan_toolchain.cmake or conan_meson_native.ini)'
+                    f"toolchain files in {generators_path} (expected conan_toolchain.cmake or conan_meson_native.ini)"
                 )
 
         if missing:
-            raise InstallationVerificationError('conan', missing)
+            raise InstallationVerificationError("conan", missing)
 
     def install(self, groups: list[str] | None = None) -> None:
         """Installs the provider
@@ -303,7 +364,10 @@ class ConanProvider(Provider):
         Returns:
             True if the sync type is supported, False otherwise.
         """
-        return sync_type in CMakeGenerator.sync_types() or sync_type in MesonGenerator.sync_types()
+        return (
+            sync_type in CMakeGenerator.sync_types()
+            or sync_type in MesonGenerator.sync_types()
+        )
 
     def sync_data(self, consumer: SyncConsumer) -> SyncData:
         """Generates synchronization data for the given consumer.
@@ -323,7 +387,7 @@ class ConanProvider(Provider):
             if sync_type == MesonSyncData:
                 return self._create_meson_sync_data()
 
-        raise NotSupportedError(f'Unsupported sync types: {consumer.sync_types()}')
+        raise NotSupportedError(f"Unsupported sync types: {consumer.sync_types()}")
 
     def _sync_with_cmake(self, consumer: SyncConsumer) -> CMakeSyncData:
         """Synchronize with CMake generator and create sync data.
@@ -349,10 +413,14 @@ class ConanProvider(Provider):
         """
         # The generated conanfile uses explicit layout (self.folders.generators = "generators")
         # Combined with --output-folder=build_path, generators are always at build_path/generators/
-        conan_toolchain_path = self.core_data.cppython_data.build_path / 'generators' / 'conan_toolchain.cmake'
+        conan_toolchain_path = (
+            self.core_data.cppython_data.build_path
+            / "generators"
+            / "conan_toolchain.cmake"
+        )
 
         return CMakeSyncData(
-            provider_name=TypeName('conan'),
+            provider_name=TypeName("conan"),
             toolchain_file=conan_toolchain_path,
         )
 
@@ -365,13 +433,13 @@ class ConanProvider(Provider):
         Returns:
             MesonSyncData configured for Conan integration
         """
-        generators_path = self.core_data.cppython_data.build_path / 'generators'
+        generators_path = self.core_data.cppython_data.build_path / "generators"
 
-        native_file = generators_path / 'conan_meson_native.ini'
-        cross_file = generators_path / 'conan_meson_cross.ini'
+        native_file = generators_path / "conan_meson_native.ini"
+        cross_file = generators_path / "conan_meson_cross.ini"
 
         return MesonSyncData(
-            provider_name=TypeName('conan'),
+            provider_name=TypeName("conan"),
             native_file=native_file if native_file.exists() else None,
             cross_file=cross_file if cross_file.exists() else None,
         )
@@ -384,7 +452,6 @@ class ConanProvider(Provider):
         no external tooling needs to be downloaded.
         """
         # No external tooling required when using CMakeToolchain
-        pass
 
     def publish(self) -> None:
         """Publishes the package using conan create workflow.
@@ -393,29 +460,33 @@ class ConanProvider(Provider):
         to support both single-config and multi-config generators.
         """
         project_root = self.core_data.project_data.project_root
-        conanfile_path = project_root / 'conanfile.py'
-        logger = getLogger('cppython.conan')
+        conanfile_path = project_root / "conanfile.py"
+        logger = getLogger("cppython.conan")
 
         if not conanfile_path.exists():
-            raise FileNotFoundError(f'conanfile.py not found at {conanfile_path}')
+            raise FileNotFoundError(f"conanfile.py not found at {conanfile_path}")
 
         try:
             # Create packages for each configured build type
             build_types = self.data.build_types
             for build_type in build_types:
-                logger.info('Creating package for build type: %s', build_type)
+                logger.info("Creating package for build type: %s", build_type)
                 self._run_conan_create(conanfile_path, build_type, logger)
 
             # Upload once after all configurations are built
             if not self.data.skip_upload:
                 self._upload_package(logger)
 
+        except ProviderInstallationError:
+            raise
         except Exception as e:
             error_msg = str(e)
-            logger.error('Conan create failed: %s', error_msg, exc_info=True)
-            raise ProviderInstallationError('conan', error_msg, e) from e
+            logger.error("Conan create failed: %s", error_msg, exc_info=True)
+            raise ProviderInstallationError("conan", error_msg, e) from e
 
-    def _run_conan_create(self, conanfile_path: Path, build_type: str, logger: Logger) -> None:
+    def _run_conan_create(
+        self, conanfile_path: Path, build_type: str, logger: Logger
+    ) -> None:
         """Run conan create command for a specific build type.
 
         Args:
@@ -424,47 +495,43 @@ class ConanProvider(Provider):
             logger: Logger instance
         """
         # Build conan create command arguments
-        command_args = ['create', str(conanfile_path)]
+        command_args = ["create", str(conanfile_path)]
 
         # Add build mode (build everything for publishing)
-        command_args.extend(['--build', 'missing'])
+        command_args.extend(["--build", "missing"])
 
         # Skip test dependencies during publishing
-        command_args.extend(['-c', 'tools.graph:skip_test=True'])
-        command_args.extend(['-c', 'tools.build:skip_test=True'])
+        command_args.extend(["-c", "tools.graph:skip_test=True"])
+        command_args.extend(["-c", "tools.build:skip_test=True"])
 
         # Enable CMakeConfigDeps (the modern CMake config-mode generator)
-        command_args.extend(['-c', 'tools.cmake.cmakedeps:new=will_break_next'])
+        command_args.extend(["-c", "tools.cmake.cmakedeps:new=will_break_next"])
 
         # Force Ninja Multi-Config generator for C++ module support
         # The Visual Studio generator does not support BMI-only compilation
         # needed for consuming C++ modules across package boundaries
-        command_args.extend(['-c', 'tools.cmake.cmaketoolchain:generator=Ninja Multi-Config'])
+        command_args.extend(
+            ["-c", "tools.cmake.cmaketoolchain:generator=Ninja Multi-Config"]
+        )
 
         # Enable 'import std;' support in the CMake toolchain
         # CMAKE_EXPERIMENTAL_CXX_IMPORT_STD must be in the toolchain file (before
         # the try_compile block) so compiler detection can create __CMAKE::CXX23.
         # Note: CMAKE_CXX_MODULE_STD must NOT be in the toolchain because it would
         # cause ABI detection try_compile to fail (chicken-and-egg with __CMAKE::CXX23).
-        # The UUID is specific to the CMake version and will need updating
-        # when the CMake version changes until import std graduates from experimental.
-        command_args.extend(
-            [
-                '-c',
-                'tools.cmake.cmaketoolchain:extra_variables={'
-                "'CMAKE_EXPERIMENTAL_CXX_IMPORT_STD': 'd0edc3af-4c50-42ea-a356-e2862fe7a444'"
-                '}',
-            ]
-        )
+        command_args.extend(self._import_std_args())
 
-        # Add build type setting
-        command_args.extend(['-s', f'build_type={build_type}'])
+        command_args.extend(self._settings_args(build_type))
 
         # Add cmake binary configuration if specified
         if self._cmake_binary:
             # Quote the path if it contains spaces
-            cmake_path = f'"{self._cmake_binary}"' if ' ' in self._cmake_binary else self._cmake_binary
-            command_args.extend(['-c', f'tools.cmake:cmake_program={cmake_path}'])
+            cmake_path = (
+                f'"{self._cmake_binary}"'
+                if " " in self._cmake_binary
+                else self._cmake_binary
+            )
+            command_args.extend(["-c", f"tools.cmake:cmake_program={cmake_path}"])
 
         # Run conan create using reusable Conan API instance
         # Change to project directory since Conan API might not handle cwd like subprocess
@@ -480,32 +547,38 @@ class ConanProvider(Provider):
         # If no remotes configured, upload to all remotes
         if not self.data.remotes:
             # Upload to all available remotes
-            command_args = ['upload', '*', '--all', '--confirm']
+            command_args = ["upload", "*", "--all", "--confirm"]
         else:
             # Upload only to specified remotes
             for remote in self.data.remotes:
-                command_args = ['upload', '*', '--remote', remote, '--all', '--confirm']
+                command_args = ["upload", "*", "--remote", remote, "--all", "--confirm"]
 
                 # Log the command being executed
-                logger.info('Executing conan upload command: conan %s', ' '.join(command_args))
+                logger.info(
+                    "Executing conan upload command: conan %s", " ".join(command_args)
+                )
 
                 try:
                     self._capture_conan_call(command_args)
-                except Exception as e:
-                    error_msg = str(e)
-                    logger.error('Conan upload failed for remote %s: %s', remote, error_msg, exc_info=True)
-                    raise ProviderInstallationError('conan', f'Upload to {remote} failed: {error_msg}', e) from e
+                except ProviderInstallationError as e:
+                    raise ProviderInstallationError(
+                        "conan",
+                        f"Upload to {remote} failed: {e.error}",
+                        e,
+                        command=e.command,
+                        output=e.output,
+                    ) from e
             return
 
         # Log the command for uploading to all remotes
-        logger.info('Executing conan upload command: conan %s', ' '.join(command_args))
+        logger.info("Executing conan upload command: conan %s", " ".join(command_args))
 
         try:
             self._capture_conan_call(command_args)
         except Exception as e:
             error_msg = str(e)
-            logger.error('Conan upload failed: %s', error_msg, exc_info=True)
-            raise ProviderInstallationError('conan', error_msg, e) from e
+            logger.error("Conan upload failed: %s", error_msg, exc_info=True)
+            raise ProviderInstallationError("conan", error_msg, e) from e
 
     def plugin_info(self) -> PluginReport:
         """Return a report describing the Conan provider's configuration, managed files, and templates.
@@ -522,11 +595,11 @@ class ConanProvider(Provider):
 
         return PluginReport(
             configuration={
-                'build_types': self.data.build_types,
-                'remotes': self.data.remotes,
-                'profile_dir': str(self.data.profile_dir),
-                'skip_upload': self.data.skip_upload,
+                "build_types": self.data.build_types,
+                "remotes": self.data.remotes,
+                "profile_dir": str(self.data.profile_dir),
+                "skip_upload": self.data.skip_upload,
             },
-            managed_files=[project_root / 'conanfile_base.py'],
-            template_files={'conanfile.py': template_content},
+            managed_files=[project_root / "conanfile_base.py"],
+            template_files={"conanfile.py": template_content},
         )

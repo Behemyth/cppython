@@ -220,14 +220,14 @@ class TestResolveConanData:
 
     @staticmethod
     def test_settings_become_install_arguments() -> None:
-        """Configured settings are passed to Conan alongside the build type."""
+        """Configured settings apply to all contexts; the build type only to the host."""
         data = ConanConfiguration.model_validate(
             {"settings": {"compiler.cppstd": "23"}}
         )
         provider = SimpleNamespace(data=SimpleNamespace(settings=data.settings))
 
         assert ConanProvider._settings_args(provider, "Debug") == [  # type: ignore[arg-type]
-            "-s",
+            "-s:a",
             "compiler.cppstd=23",
             "-s",
             "build_type=Debug",

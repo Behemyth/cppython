@@ -361,8 +361,8 @@ class ConanConfiguration(CPPythonModel):
     settings: Annotated[
         dict[str, str],
         Field(
-            description="Conan settings passed to every install and create as `-s key=value`, overriding the "
-            "detected profile. Use it to build dependencies for the project's language standard, "
-            'e.g. {"compiler.cppstd" = "23"}.',
+            description="Conan settings passed to every install and create as `-s:a key=value` (host and build "
+            "contexts), overriding the detected profiles. Use it to build dependencies and their tools for the "
+            'project\'s language standard, e.g. {"compiler.cppstd" = "23"}.',
         ),
     ] = {}

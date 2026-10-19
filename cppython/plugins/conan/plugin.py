@@ -225,13 +225,21 @@ class ConanProvider(Provider):
             self._conan_api.command.run(["profile", "detect"])
 
     def _settings_args(self, build_type: str | None) -> list[str]:
-        """Return ``-s`` arguments for the configured settings and *build_type*."""
-        settings = dict(self.data.settings)
-        if build_type:
-            settings["build_type"] = build_type
-        return [
-            arg for key, value in settings.items() for arg in ("-s", f"{key}={value}")
+        """Return ``-s`` arguments for the configured settings and *build_type*.
+
+        Configured settings apply to both the host and build contexts (``-s:a``) so
+        tools built from source, such as ``protoc``, use the project's language
+        standard instead of the detected profile's default. The build type only
+        applies to the host context.
+        """
+        args = [
+            arg
+            for key, value in self.data.settings.items()
+            for arg in ("-s:a", f"{key}={value}")
         ]
+        if build_type:
+            args.extend(["-s", f"build_type={build_type}"])
+        return args
 
     def _import_std_args(self) -> list[str]:
         """Return the toolchain config enabling ``import std`` for the CMake that will run."""
@@ -272,8 +280,9 @@ class ConanProvider(Provider):
             command_args.append("--update")
 
         command_args.extend(self._settings_args(build_type))
-        # Enable CMakeConfigDeps (the modern CMake config-mode generator)
-        command_args.extend(["-c", "tools.cmake.cmakedeps:new=will_break_next"])
+        # Enable CMakeConfigDeps (the modern CMake config-mode generator) for the consumer only;
+        # dependencies built from source keep the CMakeDeps their recipes are tested with
+        command_args.extend(["-c", "&:tools.cmake.cmakedeps:new=will_break_next"])
 
         # Match create(): only Ninja Multi-Config supports C++ modules and 'import std;'
         command_args.extend(
@@ -504,8 +513,9 @@ class ConanProvider(Provider):
         command_args.extend(["-c", "tools.graph:skip_test=True"])
         command_args.extend(["-c", "tools.build:skip_test=True"])
 
-        # Enable CMakeConfigDeps (the modern CMake config-mode generator)
-        command_args.extend(["-c", "tools.cmake.cmakedeps:new=will_break_next"])
+        # Enable CMakeConfigDeps (the modern CMake config-mode generator) for the package being
+        # created only; dependencies built from source keep the CMakeDeps their recipes are tested with
+        command_args.extend(["-c", "&:tools.cmake.cmakedeps:new=will_break_next"])
 
         # Force Ninja Multi-Config generator for C++ module support
         # The Visual Studio generator does not support BMI-only compilation

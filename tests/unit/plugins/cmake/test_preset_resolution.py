@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from cppython.plugins.cmake.presets import PresetIndex, stale_cache_hint
 from cppython.utility.exception import ConfigurationRequiredError
 

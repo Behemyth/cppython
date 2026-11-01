@@ -4,9 +4,10 @@ import io
 import subprocess
 
 import pytest
+from rich.console import Console
+
 from cppython.utility.exception import ProviderInstallationError
 from cppython.utility.output import OutputSession
-from rich.console import Console
 
 
 def _render(error: Exception) -> str:

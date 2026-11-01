@@ -103,6 +103,7 @@ source = "scm"
 
 [tool.pdm.scripts]
 analyze = { shell = "ruff check cppython tests" }
+check-fast = { composite = ["analyze", "type-check", "pytest --verbose tests/unit"] }
 format = { shell = "ruff format" }
 lint = { composite = ["analyze", "format", "type-check"] }
 test = { shell = "pytest --cov=cppython --verbose tests" }

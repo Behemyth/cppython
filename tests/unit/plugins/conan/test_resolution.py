@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 
 import pytest
+from packaging.requirements import Requirement
+
 from cppython.core.exception import ConfigException
 from cppython.plugins.conan.plugin import ConanProvider
 from cppython.plugins.conan.resolution import (
@@ -16,7 +18,6 @@ from cppython.plugins.conan.schema import (
     ConanVersion,
     ConanVersionRange,
 )
-from packaging.requirements import Requirement
 
 # Constants for test validation
 EXPECTED_PROFILE_CALL_COUNT = 2

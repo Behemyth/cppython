@@ -107,7 +107,23 @@ See [Conan Plugin Configuration](../plugins/conan/configuration.md) for details.
 [tool.cppython.generators.cmake]
 preset_file = "CMakePresets.json"  # Default
 configuration_name = "default"      # Default
+cmake_binary = "C:/Tools/CMake/bin/cmake.exe"  # Optional explicit executable
+minimum-version = "4.5.0rc1"        # Optional project requirement
 ```
+
+CPPython validates the selected executable by querying its version and recording a SHA-256 fingerprint. Selection order is `CMAKE_BINARY`, then `cmake_binary`, then the CMake installed by CPPython's `cmake` extra (which Porringer/PDM installs). `PATH` is never consulted. If both explicit selections are set, they must resolve to the same executable. Invalid, conflicting, changed, or under-versioned selections fail instead of silently falling back. If no CMake is selected, CMake and CTest commands fail and ask you to sync the `cmake` extra or set `CMAKE_BINARY`. CTest is resolved beside the selected CMake binary so that the tools come from the same distribution.
+
+`minimum-version` is the runtime check. Keep it aligned with the project's `cmake_minimum_required` and its `cmake` dependency constraint.
+
+Use `CMAKE_BINARY` for a machine-local, per-process override rather than checking a machine-specific path into `pyproject.toml`:
+
+```powershell
+$env:CMAKE_BINARY = 'C:\Program Files\CMake\bin\cmake.exe'
+cppython configure
+Remove-Item Env:CMAKE_BINARY
+```
+
+Until a CMake 4.5 wheel is published, use this override to bridge to a locally installed 4.5 release candidate. Keep it local: it does not update `PATH` or change the project's tracked configuration.
 
 ## scikit-build-core Passthrough
 

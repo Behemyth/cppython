@@ -7,7 +7,7 @@
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
-#include <fmt/core.h>
+#include <fmt/format.h>
 
 namespace nb = nanobind;
 

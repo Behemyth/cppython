@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
 from cppython.plugins.conan.plugin import ConanProvider
 from cppython.utility.exception import ProviderInstallationError
 

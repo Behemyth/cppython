@@ -20,7 +20,12 @@ from cppython.core.schema import (
 )
 from cppython.plugins.cmake.builder import Builder
 from cppython.plugins.cmake.presets import PresetIndex, PresetKind, stale_cache_hint
-from cppython.plugins.cmake.resolution import resolve_cmake_data
+from cppython.plugins.cmake.resolution import (
+    MISSING_CMAKE_GUIDANCE,
+    CMakeToolResolutionError,
+    resolve_cmake_data,
+    verify_cmake_tool,
+)
 from cppython.plugins.cmake.schema import CMakeSyncData
 from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.msvc import developer_environment
@@ -52,9 +57,7 @@ class CMakeGenerator(Generator):
         self.data = resolve_cmake_data(data, core_data)
         self.builder = Builder()
 
-        self._cppython_preset_directory = (
-            self.core_data.cppython_data.tool_path / "cppython"
-        )
+        self._cppython_preset_directory = self.core_data.cppython_data.tool_path / "cppython"
         self._provider_directory = self._cppython_preset_directory / "providers"
 
     @staticmethod
@@ -120,9 +123,11 @@ class CMakeGenerator(Generator):
         Returns:
             The cmake binary path as a string
         """
+        if self.data.cmake_tool:
+            verify_cmake_tool(self.data.cmake_tool)
         if self.data.cmake_binary:
             return str(self.data.cmake_binary)
-        return "cmake"
+        raise CMakeToolResolutionError(f"No CMake executable was selected. {MISSING_CMAKE_GUIDANCE}")
 
     def _ctest_command(self) -> str:
         """Returns the ctest command to use.
@@ -132,16 +137,19 @@ class CMakeGenerator(Generator):
         Returns:
             The ctest binary path as a string
         """
+        if self.data.cmake_tool:
+            verify_cmake_tool(self.data.cmake_tool)
         if self.data.cmake_binary:
-            # ctest is typically in the same directory as cmake
             ctest_path = self.data.cmake_binary.parent / "ctest"
             if ctest_path.exists():
                 return str(ctest_path)
-            # Try with .exe on Windows
             ctest_exe = self.data.cmake_binary.parent / "ctest.exe"
             if ctest_exe.exists():
                 return str(ctest_exe)
-        return "ctest"
+            raise FileNotFoundError(
+                f"Could not find CTest alongside the selected CMake executable: {self.data.cmake_binary}"
+            )
+        raise CMakeToolResolutionError(f"No CMake executable was selected for CTest. {MISSING_CMAKE_GUIDANCE}")
 
     def _resolve_configuration(self, configuration: str | None) -> str:
         """Resolves the effective CMake preset from CLI argument or default config.
@@ -220,9 +228,7 @@ class CMakeGenerator(Generator):
             CTest's summary line, when it printed one.
         """
         preset = self._preset("test", configuration)
-        return ctest_summary(
-            self._run([self._ctest_command(), "--preset", preset]).stdout
-        )
+        return ctest_summary(self._run([self._ctest_command(), "--preset", preset]).stdout)
 
     def bench(self, configuration: str | None = None) -> str | None:
         """Runs benchmarks using ctest with the resolved preset.
@@ -234,9 +240,7 @@ class CMakeGenerator(Generator):
             CTest's summary line, when it printed one.
         """
         preset = self._preset("test", configuration)
-        return ctest_summary(
-            self._run([self._ctest_command(), "--preset", preset]).stdout
-        )
+        return ctest_summary(self._run([self._ctest_command(), "--preset", preset]).stdout)
 
     def run(self, target: str, configuration: str | None = None) -> None:
         """Runs a built executable by target name.
@@ -253,20 +257,14 @@ class CMakeGenerator(Generator):
         build_path = self.core_data.cppython_data.build_path
 
         # Search for the executable in the build directory
-        candidates = list(build_path.rglob(target)) + list(
-            build_path.rglob(f"{target}.exe")
-        )
+        candidates = list(build_path.rglob(target)) + list(build_path.rglob(f"{target}.exe"))
         executables = [c for c in candidates if c.is_file()]
 
         if not executables:
-            raise FileNotFoundError(
-                f"Could not find executable '{target}' in build directory: {build_path}"
-            )
+            raise FileNotFoundError(f"Could not find executable '{target}' in build directory: {build_path}")
 
         executable = executables[0]
-        run_subprocess(
-            [str(executable)], cwd=self.data.preset_file.parent, logger=logger
-        )
+        run_subprocess([str(executable)], cwd=self.data.preset_file.parent, logger=logger)
 
     def list_targets(self) -> list[str]:
         """Lists discovered build targets/executables in the CMake build directory.
@@ -285,9 +283,7 @@ class CMakeGenerator(Generator):
         # Collect executable files from the build directory
         targets: set[str] = set()
         for candidate in build_path.rglob("*"):
-            if candidate.is_file() and (
-                candidate.stat().st_mode & 0o111 or candidate.suffix == ".exe"
-            ):
+            if candidate.is_file() and (candidate.stat().st_mode & 0o111 or candidate.suffix == ".exe"):
                 # Use the stem (name without extension) as the target name
                 targets.add(candidate.stem)
 
@@ -307,6 +303,10 @@ class CMakeGenerator(Generator):
         }
         if self.data.cmake_binary is not None:
             config["cmake_binary"] = str(self.data.cmake_binary)
+        if self.data.cmake_tool is not None:
+            config["cmake_tool"] = self.data.cmake_tool.model_dump(mode="json")
+        if self.data.minimum_version is not None:
+            config["minimum_version"] = self.data.minimum_version
         if self.data.default_configuration is not None:
             config["default_configuration"] = self.data.default_configuration
 

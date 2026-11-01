@@ -7,11 +7,13 @@ configuration presets, and synchronization data.
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from cppython.core.schema import CPPythonModel, SyncData
+
+CMakeToolOrigin = Literal['environment', 'configuration', 'packaged']
 
 
 class VariableType(StrEnum):
@@ -134,12 +136,24 @@ class CMakeSyncData(SyncData):
     toolchain_file: Path | None = None
 
 
+class EffectiveCMakeTool(CPPythonModel):
+    """The validated CMake executable selected for one operation."""
+
+    executable: Path
+    version: str
+    origin: CMakeToolOrigin
+    capabilities: tuple[str, ...] = ()
+    fingerprint: str
+
+
 class CMakeData(CPPythonModel):
     """Resolved CMake data"""
 
     preset_file: Path
     configuration_name: str
     cmake_binary: Path | None
+    cmake_tool: EffectiveCMakeTool | None = None
+    minimum_version: str | None = None
     default_configuration: str | None = None
 
 
@@ -164,8 +178,19 @@ class CMakeConfiguration(CPPythonModel):
     cmake_binary: Annotated[
         Path | None,
         Field(
-            description='Path to a specific CMake binary to use. If not specified, uses "cmake" from PATH. '
-            'Can be overridden via CMAKE_BINARY environment variable.'
+            description=(
+                'Path to a specific CMake binary. CMAKE_BINARY may select it per process; if both are set, they '
+                'must identify the same executable. Invalid or conflicting explicit selections fail instead of '
+                'falling back. Without an explicit selection, CPPython uses the CMake installed by its "cmake" '
+                'extra; PATH is never consulted.'
+            )
+        ),
+    ] = None
+    minimum_version: Annotated[
+        str | None,
+        Field(
+            alias='minimum-version',
+            description='Minimum supported CMake version required by the project.',
         ),
     ] = None
     default_configuration: Annotated[

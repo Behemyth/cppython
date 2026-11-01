@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from cppython.utility import msvc
 
 

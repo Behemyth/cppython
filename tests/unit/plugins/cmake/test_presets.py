@@ -54,6 +54,38 @@ class TestWrites:
     """Tests for writing the CMakePresets class"""
 
     @staticmethod
+    def test_cppython_preset_has_build_type_toolchains(project_data: ProjectData) -> None:
+        """The generated CMake include selects the matching Conan toolchain per build type."""
+        builder = Builder()
+        preset_directory = project_data.project_root / 'tool' / 'cppython'
+        preset_directory.mkdir(parents=True, exist_ok=True)
+        provider_preset_file = preset_directory / 'providers' / 'CMakePresets.json'
+        provider_preset_file.parent.mkdir(parents=True, exist_ok=True)
+        conan_build = project_data.project_root / 'build' / 'conan'
+
+        data = CMakeSyncData(
+            provider_name=TypeName('test-provider'),
+            toolchain_file=conan_build / 'Release' / 'generators' / 'conan_toolchain.cmake',
+            toolchain_files={
+                'Debug': conan_build / 'Debug' / 'generators' / 'conan_toolchain.cmake',
+                'Release': conan_build / 'Release' / 'generators' / 'conan_toolchain.cmake',
+            },
+        )
+
+        preset_file = builder.write_cppython_preset(
+            preset_directory, provider_preset_file, data, project_data.project_root
+        )
+        presets = json.loads(preset_file.read_text(encoding='utf-8'))
+        configure_presets = {preset['name']: preset for preset in presets['configurePresets']}
+
+        assert configure_presets['cppython-debug']['toolchainFile'] == (
+            '${sourceDir}/build/conan/Debug/generators/conan_toolchain.cmake'
+        )
+        assert configure_presets['cppython-release']['toolchainFile'] == (
+            '${sourceDir}/build/conan/Release/generators/conan_toolchain.cmake'
+        )
+
+    @staticmethod
     def test_root_write(project_data: ProjectData) -> None:
         """Verifies that the root preset writing works as intended
 

@@ -109,6 +109,27 @@ class TestConanInstall(ProviderPluginTestMixin[ConanProvider]):
 
         assert ("tools.graph:skip_test=True" in command) is skipped
 
+    def test_build_type_install_uses_isolated_output_folder(
+        self,
+        plugin: ConanProvider,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Each build type gets independent Conan-generated CMake package paths."""
+        command: list[str] = []
+        monkeypatch.setattr(plugin, "_capture_conan_call", command.extend)
+        monkeypatch.setattr(plugin, "_cmake_program_args", list)
+
+        plugin._run_conan_install(
+            tmp_path / "conanfile.py",
+            update=False,
+            build_type="Debug",
+            logger=logging.getLogger("test.conan"),
+        )
+
+        output_folder = Path(command[command.index("--output-folder") + 1])
+        assert output_folder == plugin.core_data.cppython_data.build_path / "conan" / "Debug"
+
     def test_generated_file_error_is_not_wrapped(self, plugin: ConanProvider, monkeypatch: pytest.MonkeyPatch) -> None:
         """A refused generated file surfaces with its diff instead of a generic install failure."""
         error = GeneratedFileError(

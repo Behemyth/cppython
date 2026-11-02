@@ -261,8 +261,8 @@ class ConanProvider(Provider):
         # Build conan install command arguments
         command_args = ["install", str(conanfile_path)]
 
-        # Use build_path as the output folder directly
-        output_folder = self.core_data.cppython_data.build_path
+        # Keep each build type's CMake package paths isolated for multi-config consumers.
+        output_folder = self.core_data.cppython_data.build_path / "conan" / build_type
         command_args.extend(["--output-folder", str(output_folder)])
 
         # Add build missing flag
@@ -310,17 +310,15 @@ class ConanProvider(Provider):
         Raises:
             InstallationVerificationError: If expected artifacts are missing
         """
-        generators_path = self.core_data.cppython_data.build_path / "generators"
         missing: list[str] = []
-
-        if not generators_path.is_dir():
-            missing.append(f"generators directory ({generators_path})")
-        else:
-            # Check for at least one of the expected toolchain files
+        for build_type in self.data.build_types:
+            generators_path = self.core_data.cppython_data.build_path / "conan" / build_type / "generators"
             cmake_toolchain = generators_path / "conan_toolchain.cmake"
             meson_native = generators_path / "conan_meson_native.ini"
 
-            if not cmake_toolchain.exists() and not meson_native.exists():
+            if not generators_path.is_dir():
+                missing.append(f"generators directory ({generators_path})")
+            elif not cmake_toolchain.exists() and not meson_native.exists():
                 missing.append(
                     f"toolchain files in {generators_path} (expected conan_toolchain.cmake or conan_meson_native.ini)"
                 )
@@ -411,13 +409,16 @@ class ConanProvider(Provider):
         Returns:
             CMakeSyncData configured for Conan integration
         """
-        # The generated conanfile uses explicit layout (self.folders.generators = "generators")
-        # Combined with --output-folder=build_path, generators are always at build_path/generators/
-        conan_toolchain_path = self.core_data.cppython_data.build_path / "generators" / "conan_toolchain.cmake"
+        build_path = self.core_data.cppython_data.build_path
+        toolchain_files = {
+            build_type: build_path / "conan" / build_type / "generators" / "conan_toolchain.cmake"
+            for build_type in self.data.build_types
+        }
 
         return CMakeSyncData(
             provider_name=TypeName("conan"),
-            toolchain_file=conan_toolchain_path,
+            toolchain_file=toolchain_files.get("Release") or next(iter(toolchain_files.values()), None),
+            toolchain_files=toolchain_files,
         )
 
     def _create_meson_sync_data(self) -> MesonSyncData:
@@ -429,7 +430,8 @@ class ConanProvider(Provider):
         Returns:
             MesonSyncData configured for Conan integration
         """
-        generators_path = self.core_data.cppython_data.build_path / "generators"
+        build_type = self.data.build_types[0]
+        generators_path = self.core_data.cppython_data.build_path / "conan" / build_type / "generators"
 
         native_file = generators_path / "conan_meson_native.ini"
         cross_file = generators_path / "conan_meson_cross.ini"

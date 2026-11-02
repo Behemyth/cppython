@@ -4,7 +4,7 @@ import re
 import subprocess
 from logging import getLogger
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from cppython.core.plugin_schema.generator import (
     Generator,
@@ -200,8 +200,18 @@ class CMakeGenerator(Generator):
         Args:
             configuration: Optional CMake preset name. Overrides default-configuration from config.
         """
-        preset = self._preset("build", configuration)
+        index = PresetIndex(self.core_data.project_data.project_root)
+        preset = self._preset("build", configuration, index)
+        self._configure_operation("build", preset, index)
         self._run([self._cmake_command(), "--build", "--preset", preset])
+
+    def _configure_operation(
+        self, kind: Literal["build", "test"], preset: str, index: PresetIndex
+    ) -> None:
+        """Configure the build tree selected by a build or test preset."""
+        configure_preset = index.field(kind, preset, "configurePreset")
+        if configure_preset:
+            self._run([self._cmake_command(), "--preset", configure_preset])
 
     def configure(self, configuration: str | None = None) -> None:
         """Configures the project using the resolved CMake configure preset.
@@ -227,7 +237,9 @@ class CMakeGenerator(Generator):
         Returns:
             CTest's summary line, when it printed one.
         """
-        preset = self._preset("test", configuration)
+        index = PresetIndex(self.core_data.project_data.project_root)
+        preset = self._preset("test", configuration, index)
+        self._configure_operation("test", preset, index)
         return ctest_summary(self._run([self._ctest_command(), "--preset", preset]).stdout)
 
     def bench(self, configuration: str | None = None) -> str | None:
@@ -239,7 +251,9 @@ class CMakeGenerator(Generator):
         Returns:
             CTest's summary line, when it printed one.
         """
-        preset = self._preset("test", configuration)
+        index = PresetIndex(self.core_data.project_data.project_root)
+        preset = self._preset("test", configuration, index)
+        self._configure_operation("test", preset, index)
         return ctest_summary(self._run([self._ctest_command(), "--preset", preset]).stdout)
 
     def run(self, target: str, configuration: str | None = None) -> None:

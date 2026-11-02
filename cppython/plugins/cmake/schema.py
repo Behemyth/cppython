@@ -134,6 +134,7 @@ class CMakeSyncData(SyncData):
     """The CMake sync data"""
 
     toolchain_file: Path | None = None
+    toolchain_files: dict[str, Path] = Field(default_factory=dict)
 
 
 class EffectiveCMakeTool(CPPythonModel):

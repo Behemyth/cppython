@@ -53,6 +53,17 @@ class Builder:
 
         configure_presets.append(default_configure)
 
+        for build_type, toolchain_file in provider_data.toolchain_files.items():
+            configure_preset = ConfigurePreset(
+                name=f'cppython-{build_type.lower()}',
+                hidden=True,
+                description=f'CPPython dependency toolchain for {build_type}',
+                inherits=preset_name,
+            )
+            relative_toolchain = toolchain_file.relative_to(project_root, walk_up=True)
+            configure_preset.toolchainFile = '${sourceDir}/' + relative_toolchain.as_posix()
+            configure_presets.append(configure_preset)
+
         generated_preset = CMakePresets(
             configurePresets=configure_presets,
         )

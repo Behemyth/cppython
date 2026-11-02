@@ -48,6 +48,16 @@ class TestResolveDependency:
         assert str(result.version) == "20240116.2"
         assert result.version_range is None
 
+    def test_with_four_component_version(self) -> None:
+        """Test that exact versions keep components beyond patch."""
+        requirement = Requirement("vulkan-headers==1.4.357.0")
+
+        result = resolve_conan_dependency(requirement)
+
+        assert result.version is not None
+        assert str(result.version) == "1.4.357.0"
+        assert result.requires() == "vulkan-headers/1.4.357.0"
+
     def test_without_version(self) -> None:
         """Test resolving a dependency without a version specifier."""
         requirement = Requirement("boost")

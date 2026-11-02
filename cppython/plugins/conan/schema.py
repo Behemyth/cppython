@@ -20,6 +20,7 @@ class ConanVersion(CPPythonModel):
     major: int
     minor: int
     patch: int | None = None
+    extra: tuple[int, ...] = ()
     prerelease: str | None = None
 
     @field_validator("major", "minor", mode="before")  # type: ignore
@@ -54,6 +55,10 @@ class ConanVersion(CPPythonModel):
             else f"{self.major}.{self.minor}"
         )
 
+        # Components beyond patch (e.g. vulkan-headers/1.4.357.0) are significant to Conan
+        for part in self.extra:
+            version += f".{part}"
+
         if self.prerelease:
             version += f"-{self.prerelease}"
         return version
@@ -77,11 +82,13 @@ class ConanVersion(CPPythonModel):
         major = int(parts[MAJOR_INDEX])
         minor = int(parts[MINOR_INDEX]) if len(parts) > MINOR_INDEX else 0
         patch = int(parts[PATCH_INDEX]) if len(parts) > PATCH_INDEX else None
+        extra = tuple(int(part) for part in parts[PATCH_INDEX + 1 :])
 
         return cls(
             major=major,
             minor=minor,
             patch=patch,
+            extra=extra,
             prerelease=prerelease,
         )
 

@@ -7,6 +7,7 @@ import pytest
 
 from cppython.plugins.conan.builder import Builder
 from cppython.plugins.conan.schema import ConanDependency, ConanfileGenerationData, ConanVersion
+from cppython.utility.generated import GeneratedFileError, GeneratedFilePolicy, GeneratedFileState
 
 
 class TestBuilder:
@@ -17,10 +18,8 @@ class TestBuilder:
         """Create a Builder instance for testing."""
         return Builder()
 
-    def test_mixed_dependencies(self, builder: Builder, tmp_path: Path) -> None:
+    def test_mixed_dependencies(self, builder: Builder) -> None:
         """Test base conanfile with both regular and test dependencies."""
-        base_file = tmp_path / 'conanfile_base.py'
-
         dependencies = [
             ConanDependency(name='boost', version=ConanVersion.from_string('1.80.0')),
         ]
@@ -30,10 +29,9 @@ class TestBuilder:
             ]
         }
 
-        builder._create_base_conanfile(base_file, dependencies, dependency_groups)
+        content = builder._base_conanfile_content(dependencies, dependency_groups)
 
-        assert base_file.exists()
-        content = base_file.read_text(encoding='utf-8')
+        assert content.startswith('# cppython-generated: schema=1 sha256=')
         assert 'self.requires("boost/1.80.0")' in content
         assert 'self.test_requires("gtest/1.14.0")' in content
 
@@ -187,3 +185,90 @@ class TestConanfileContent:
         assert 'cppython-template-version' not in content
         assert 'from conanfile_base import CPPythonBase' in content
         assert 'class MyProjectPackage(CPPythonBase):' in content
+
+
+def _data(*names: str) -> ConanfileGenerationData:
+    return ConanfileGenerationData(
+        dependencies=[ConanDependency(name=name, version=ConanVersion.from_string('1.0.0')) for name in names],
+        dependency_groups={},
+        name='test-project',
+        version='1.0.0',
+    )
+
+
+class TestBaseFilePolicy:
+    """Tests for how generate_conanfile treats an existing conanfile_base.py."""
+
+    def test_untouched_base_is_regenerated(self, tmp_path: Path) -> None:
+        """A base file nobody edited follows pyproject.toml changes."""
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+        Builder().generate_conanfile(tmp_path, _data('zlib'))
+
+        content = (tmp_path / 'conanfile_base.py').read_text(encoding='utf-8')
+        assert 'zlib/1.0.0' in content
+        assert 'boost/1.0.0' not in content
+
+    def test_hand_edited_base_is_preserved(self, tmp_path: Path) -> None:
+        """A hand-edited base file is left alone and the error shows the diff."""
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+        base_file = tmp_path / 'conanfile_base.py'
+        edited = base_file.read_text(encoding='utf-8') + '# local tweak\n'
+        base_file.write_text(edited, encoding='utf-8')
+
+        with pytest.raises(GeneratedFileError) as error:
+            Builder().generate_conanfile(tmp_path, _data('zlib'))
+
+        assert error.value.state is GeneratedFileState.MODIFIED
+        assert '-# local tweak' in error.value.diff
+        assert base_file.read_text(encoding='utf-8') == edited
+
+    def test_force_overwrites_hand_edits(self, tmp_path: Path) -> None:
+        """FORCE replaces a hand-edited base file."""
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+        base_file = tmp_path / 'conanfile_base.py'
+        base_file.write_text(base_file.read_text(encoding='utf-8') + '# local tweak\n', encoding='utf-8')
+
+        Builder().generate_conanfile(tmp_path, _data('zlib'), GeneratedFilePolicy.FORCE)
+
+        content = base_file.read_text(encoding='utf-8')
+        assert '# local tweak' not in content
+        assert 'zlib/1.0.0' in content
+
+    def test_locked_never_writes(self, tmp_path: Path) -> None:
+        """LOCKED fails on a stale base file and leaves both files untouched."""
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+        base_file = tmp_path / 'conanfile_base.py'
+        before = base_file.read_text(encoding='utf-8')
+
+        with pytest.raises(GeneratedFileError) as error:
+            Builder().generate_conanfile(tmp_path, _data('zlib'), GeneratedFilePolicy.LOCKED)
+
+        assert error.value.state is GeneratedFileState.STALE
+        assert base_file.read_text(encoding='utf-8') == before
+
+    def test_locked_passes_when_current(self, tmp_path: Path) -> None:
+        """LOCKED succeeds when the base file already matches."""
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+
+        Builder().generate_conanfile(tmp_path, _data('boost'), GeneratedFilePolicy.LOCKED)
+
+    def test_locked_does_not_create_files(self, tmp_path: Path) -> None:
+        """LOCKED reports a missing base file instead of creating anything."""
+        with pytest.raises(GeneratedFileError) as error:
+            Builder().generate_conanfile(tmp_path, _data('boost'), GeneratedFilePolicy.LOCKED)
+
+        assert error.value.state is GeneratedFileState.MISSING
+        assert not any(tmp_path.iterdir())
+
+    def test_legacy_base_is_migrated(self, tmp_path: Path) -> None:
+        """A base file from a generator without headers counts as untouched."""
+        base_file = tmp_path / 'conanfile_base.py'
+        base_file.write_text(
+            '"""CPPython managed base ConanFile.\n\n'
+            'This file is auto-generated by CPPython. Do not edit manually.\n"""\n',
+            encoding='utf-8',
+        )
+
+        Builder().generate_conanfile(tmp_path, _data('boost'))
+
+        assert base_file.read_text(encoding='utf-8').startswith('# cppython-generated:')

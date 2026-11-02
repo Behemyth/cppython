@@ -35,6 +35,11 @@ class API(Protocol):
         raise NotImplementedError()
 
     @abstractmethod
+    def check(self) -> None:
+        """Verifies generated project files are current without writing them."""
+        raise NotImplementedError()
+
+    @abstractmethod
     def configure(self, configuration: str | None = None) -> None:
         """Configures the project's build tree.
 

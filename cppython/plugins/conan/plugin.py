@@ -44,6 +44,7 @@ from cppython.utility.exception import (
     NotSupportedError,
     ProviderInstallationError,
 )
+from cppython.utility.generated import GeneratedFileError, GeneratedFilePolicy
 from cppython.utility.utility import TypeName
 
 
@@ -144,52 +145,55 @@ class ConanProvider(Provider):
 
         try:
             # Setup environment and generate conanfile
-            conanfile_path = self._prepare_installation(groups=groups)
+            conanfile_path = self._prepare_installation()
+        except GeneratedFileError:
+            raise
         except Exception as e:
             raise ProviderInstallationError("conan", f"Failed to prepare {operation} environment: {e}", e) from e
+
+        # Every group is declared in the recipe, so unrequested test requirements are skipped at install time
+        include_test = bool(groups) and "test" in groups
 
         try:
             build_types = self.data.build_types
             for build_type in build_types:
                 logger.info("Installing dependencies for build type: %s", build_type)
-                self._run_conan_install(conanfile_path, update, build_type, logger)
+                self._run_conan_install(conanfile_path, update, build_type, logger, include_test=include_test)
         except ProviderInstallationError:
             raise
         except Exception as e:
             raise ProviderInstallationError("conan", f"Failed to install dependencies: {e}", e) from e
 
-    def _prepare_installation(self, groups: list[str] | None = None) -> Path:
-        """Prepare the installation environment and generate conanfile.
+    def _generation_data(self) -> ConanfileGenerationData:
+        """Resolve the data conanfile_base.py is generated from.
 
-        Args:
-            groups: Optional list of dependency group names to include
+        Every declared dependency group is included, so the generated file does not depend
+        on which groups a particular install selects.
 
         Returns:
-            Path to conanfile.py
+            The generation data
         """
-        # Resolve base dependencies
-        resolved_dependencies = [resolve_conan_dependency(req) for req in self.core_data.cppython_data.dependencies]
-
-        # Resolve only the requested dependency groups
-        resolved_dependency_groups = {}
-        if groups:
-            for group_name in groups:
-                if group_name in self.core_data.cppython_data.dependency_groups:
-                    resolved_dependency_groups[group_name] = [
-                        resolve_conan_dependency(req)
-                        for req in self.core_data.cppython_data.dependency_groups[group_name]
-                    ]
-
-        generation_data = ConanfileGenerationData(
-            dependencies=resolved_dependencies,
-            dependency_groups=resolved_dependency_groups,
+        cppython_data = self.core_data.cppython_data
+        return ConanfileGenerationData(
+            dependencies=[resolve_conan_dependency(req) for req in cppython_data.dependencies],
+            dependency_groups={
+                name: [resolve_conan_dependency(req) for req in requirements]
+                for name, requirements in cppython_data.dependency_groups.items()
+            },
             name=self.core_data.pep621_data.name,
             version=self.core_data.pep621_data.version,
         )
 
+    def _prepare_installation(self) -> Path:
+        """Prepare the installation environment and generate conanfile.
+
+        Returns:
+            Path to conanfile.py
+        """
         self.builder.generate_conanfile(
             self.core_data.project_data.project_root,
-            generation_data,
+            self._generation_data(),
+            self.core_data.project_data.generated_files,
         )
 
         # Ensure build directory exists
@@ -236,7 +240,15 @@ class ConanProvider(Provider):
         cmake_path = f'"{self._cmake_binary}"' if " " in self._cmake_binary else self._cmake_binary
         return ["-c", f"tools.cmake:cmake_program={cmake_path}"]
 
-    def _run_conan_install(self, conanfile_path: Path, update: bool, build_type: str, logger: Logger) -> None:
+    def _run_conan_install(
+        self,
+        conanfile_path: Path,
+        update: bool,
+        build_type: str,
+        logger: Logger,
+        *,
+        include_test: bool = True,
+    ) -> None:
         """Run conan install command using Conan API with optional build type.
 
         Args:
@@ -244,6 +256,7 @@ class ConanProvider(Provider):
             update: Whether to check for updates
             build_type: Build type (Release, Debug, etc.) or None for default
             logger: Logger instance
+            include_test: Whether to install the recipe's test requirements
         """
         # Build conan install command arguments
         command_args = ["install", str(conanfile_path)]
@@ -258,6 +271,9 @@ class ConanProvider(Provider):
         # Add update flag if needed
         if update:
             command_args.append("--update")
+
+        if not include_test:
+            command_args.extend(["-c", "tools.graph:skip_test=True"])
 
         command_args.extend(self._settings_args(build_type))
         # Enable CMakeConfigDeps (the modern CMake config-mode generator) for the consumer only;
@@ -319,6 +335,18 @@ class ConanProvider(Provider):
             groups: Optional list of dependency group names to install
         """
         self._install_dependencies(update=False, groups=groups)
+
+    def check(self) -> None:
+        """Verify conanfile_base.py matches pyproject.toml without writing anything.
+
+        Raises:
+            GeneratedFileError: If conanfile_base.py is missing or differs
+        """
+        self.builder.generate_conanfile(
+            self.core_data.project_data.project_root,
+            self._generation_data(),
+            GeneratedFilePolicy.LOCKED,
+        )
 
     def update(self, groups: list[str] | None = None) -> None:
         """Updates the provider

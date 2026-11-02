@@ -124,6 +124,22 @@ want spinners or a log file (tests, library usage, etc.)."""
 # ---------------------------------------------------------------------------
 
 
+class _CollectingHandler(logging.Handler):
+    """Keeps warning messages so they can be shown once the spinner is gone.
+
+    Error records are skipped: subprocess stderr is logged at that level line by line, and
+    failures already print the relevant output tail.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno == logging.WARNING:
+            self.messages.append(record.getMessage())
+
+
 class OutputSession:
     """Session-scoped output controller.
 
@@ -131,7 +147,8 @@ class OutputSession:
     ``cppython.*`` logger output is routed to this file via a
     :class:`logging.FileHandler`.  In quiet mode (default) the
     ``RichHandler`` on the logger is temporarily removed so nothing is
-    printed to the terminal — only the spinner is visible.
+    printed to the terminal while work runs — only the spinner is visible.
+    Warnings are collected and printed when the session ends.
 
     On exit the path to the log file is printed.  If an exception is
     propagating a red error banner is shown as well.
@@ -147,6 +164,7 @@ class OutputSession:
         self._console = console
         self._verbose = verbose
         self._file_handler: logging.FileHandler | None = None
+        self._warning_handler: _CollectingHandler | None = None
         self._removed_handlers: list[logging.Handler] = []
         self._log_path: Path | None = None
         self._original_level: int | None = None
@@ -190,6 +208,10 @@ class OutputSession:
                     root_logger.removeHandler(handler)
                     self._removed_handlers.append(handler)
 
+            # Warnings still need the user's attention, so they're replayed after the spinner
+            self._warning_handler = _CollectingHandler()
+            root_logger.addHandler(self._warning_handler)
+
         return self
 
     def __exit__(
@@ -207,6 +229,12 @@ class OutputSession:
             self._file_handler.close()
             self._file_handler = None
 
+        warnings: list[str] = []
+        if self._warning_handler is not None:
+            root_logger.removeHandler(self._warning_handler)
+            warnings = self._warning_handler.messages
+            self._warning_handler = None
+
         # Restore previously removed console handlers
         for handler in self._removed_handlers:
             root_logger.addHandler(handler)
@@ -218,6 +246,11 @@ class OutputSession:
             self._original_level = None
 
         # Print the result
+        for message in warnings:
+            self._console.print(
+                f"[bold yellow]Warning:[/bold yellow] {escape(message)}", highlight=False
+            )
+
         if isinstance(exc_val, subprocess.CalledProcessError):
             self._print_failure(
                 f"command exited with status {exc_val.returncode}",
@@ -227,7 +260,9 @@ class OutputSession:
         elif isinstance(exc_val, ProviderInstallationError) and exc_val.command:
             self._print_failure(str(exc_val), exc_val.command, (exc_val.output,))
         elif exc_type is not None:
-            self._console.print(f"[bold red]Error:[/bold red] {exc_val}")
+            self._console.print(
+                f"[bold red]Error:[/bold red] {escape(str(exc_val))}", highlight=False
+            )
         else:
             self._console.print("[bold green]Done[/bold green]")
 

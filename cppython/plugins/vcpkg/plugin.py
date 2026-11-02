@@ -309,3 +309,10 @@ class VcpkgProvider(Provider):
             NotImplementedError: vcpkg does not support publishing
         """
         raise NotImplementedError('vcpkg does not support publishing')
+
+    def check(self) -> None:
+        """Checks generated files.
+
+        vcpkg.json is rewritten from pyproject.toml on every install and carries no ownership
+        header, so there is nothing to verify yet.
+        """

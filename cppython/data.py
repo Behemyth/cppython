@@ -101,5 +101,5 @@ class Data:
 
         path.mkdir(parents=True, exist_ok=True)
 
-        self.logger.warning('Downloading the %s requirements to %s', self.plugins.provider.name(), path)
+        self.logger.info('Downloading the %s requirements to %s', self.plugins.provider.name(), path)
         await self.plugins.provider.download_tooling(path)

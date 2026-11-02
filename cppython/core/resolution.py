@@ -36,7 +36,11 @@ def resolve_project_configuration(project_configuration: ProjectConfiguration) -
     Returns:
         The resolved data
     """
-    return ProjectData(project_root=project_configuration.project_root, verbosity=project_configuration.verbosity)
+    return ProjectData(
+        project_root=project_configuration.project_root,
+        verbosity=project_configuration.verbosity,
+        generated_files=project_configuration.generated_files,
+    )
 
 
 def resolve_pep621(

@@ -1,6 +1,7 @@
 """Tests for session failure output"""
 
 import io
+import logging
 import subprocess
 
 import pytest
@@ -66,3 +67,29 @@ def test_notes_are_printed_as_hints() -> None:
     printed = _render(error)
 
     assert "Hint: Delete build/[x] and configure again." in printed
+
+
+def test_error_message_is_not_markup() -> None:
+    """Brackets in a generic error, such as a diff of '[test]', are printed literally."""
+    printed = _render(ValueError("-    groups = [test]\n+    groups = [bold]"))
+
+    assert "groups = [test]" in printed
+    assert "groups = [bold]" in printed
+
+
+def test_quiet_session_replays_warnings_but_not_errors() -> None:
+    """Warnings reach the user after the spinner; per-line stderr errors stay in the log file."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, width=200)
+    logger = logging.getLogger("cppython.test")
+
+    with OutputSession(console, verbose=False):
+        logger.warning("Regenerated [x].py; commit the change")
+        logger.error("stderr line")
+        logger.info("progress")
+
+    printed = buffer.getvalue()
+    assert "Warning: Regenerated [x].py; commit the change" in printed
+    assert "stderr line" not in printed
+    assert "progress" not in printed
+    assert printed.index("Warning:") < printed.index("Done")

@@ -85,7 +85,10 @@ select = [
 convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
-"cppython/console/entry.py" = ["PT"] # CLI commands, not pytest tests
+"cppython/console/entry.py" = [
+    "PT",      # CLI commands, not pytest tests
+    "PLR0913", # Typer maps each CLI option to a parameter
+]
 
 [tool.ruff.format]
 docstring-code-format = true

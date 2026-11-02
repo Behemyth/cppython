@@ -20,7 +20,23 @@ from cppython.utility.exception import (
     ConfigurationRequiredError,
     ProviderInstallationError,
 )
+from cppython.utility.generated import GeneratedFileError, GeneratedFilePolicy
 from cppython.utility.output import OutputSession
+
+LockedOption = Annotated[
+    bool,
+    typer.Option(
+        "--locked",
+        help="Fail instead of writing generated files that are out of date (for CI)",
+    ),
+]
+ForceRegenerateOption = Annotated[
+    bool,
+    typer.Option(
+        "--force-regenerate",
+        help="Overwrite generated files even if they were edited by hand",
+    ),
+]
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -88,9 +104,31 @@ def _session_project(context: typer.Context) -> Generator[Project]:
         subprocess.CalledProcessError,
         ProviderInstallationError,
         ConfigurationRequiredError,
+        GeneratedFileError,
     ):
         # The session already printed the failure and its output.
         raise typer.Exit(code=1) from None
+
+
+def _apply_generated_file_policy(
+    context: typer.Context, locked: bool, force_regenerate: bool
+) -> None:
+    """Set how the command may change generated files.
+
+    Raises:
+        typer.BadParameter: If both flags are given
+    """
+    if locked and force_regenerate:
+        raise typer.BadParameter("--locked and --force-regenerate can't be combined")
+
+    if locked:
+        policy = GeneratedFilePolicy.LOCKED
+    elif force_regenerate:
+        policy = GeneratedFilePolicy.FORCE
+    else:
+        return
+
+    _get_configuration(context).project_configuration.generated_files = policy
 
 
 def _parse_groups_argument(groups: str | None) -> list[str] | None:
@@ -268,6 +306,8 @@ def install(
             help="Configure the build tree after installation",
         ),
     ] = False,
+    locked: LockedOption = False,
+    force_regenerate: ForceRegenerateOption = False,
 ) -> None:
     """Install API call
 
@@ -276,11 +316,14 @@ def install(
         groups: Optional dependency groups to install (e.g., [test] or [dev,test])
         configuration: Optional named configuration to configure after installation
         configure: Whether to configure the build tree after installation
+        locked: Fail instead of writing out-of-date generated files
+        force_regenerate: Overwrite hand-edited generated files
 
     Raises:
         ValueError: If the configuration object is missing
     """
     group_list = _parse_groups_argument(groups)
+    _apply_generated_file_policy(context, locked, force_regenerate)
 
     with _session_project(context) as project:
         project.install(groups=group_list)
@@ -317,6 +360,8 @@ def update(
             help="Configure the build tree after updating dependencies",
         ),
     ] = False,
+    locked: LockedOption = False,
+    force_regenerate: ForceRegenerateOption = False,
 ) -> None:
     """Update API call
 
@@ -325,11 +370,14 @@ def update(
         groups: Optional dependency groups to update (e.g., [test] or [dev,test])
         configuration: Optional named configuration to configure after update
         configure: Whether to configure the build tree after update
+        locked: Fail instead of writing out-of-date generated files
+        force_regenerate: Overwrite hand-edited generated files
 
     Raises:
         ValueError: If the configuration object is missing
     """
     group_list = _parse_groups_argument(groups)
+    _apply_generated_file_policy(context, locked, force_regenerate)
 
     with _session_project(context) as project:
         project.update(groups=group_list)
@@ -341,6 +389,19 @@ def update(
             print(
                 f"[yellow]Native dependencies updated; build tree not configured.[/yellow] {error}"
             )
+
+
+@app.command()
+def check(
+    context: typer.Context,
+) -> None:
+    """Verify generated project files match pyproject.toml, without writing anything.
+
+    Args:
+        context: The CLI configuration object
+    """
+    with _session_project(context) as project:
+        project.check()
 
 
 @app.command()

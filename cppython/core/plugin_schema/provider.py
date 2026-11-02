@@ -114,3 +114,12 @@ class Provider(DataPlugin, SyncProducer, Protocol):
     def publish(self) -> None:
         """Called when the project needs to be published."""
         raise NotImplementedError
+
+    @abstractmethod
+    def check(self) -> None:
+        """Verify the files the provider generates into the project are current, without writing.
+
+        Raises:
+            GeneratedFileError: If a generated file is missing or differs from its inputs
+        """
+        raise NotImplementedError

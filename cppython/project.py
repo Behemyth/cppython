@@ -179,6 +179,22 @@ class Project(API):
         with self._session.spinner("Updating dependencies..."):
             self._data.plugins.provider.update(groups=groups)
 
+    def check(self) -> None:
+        """Verifies generated project files are current without writing them.
+
+        Raises:
+            GeneratedFileError: If a generated file is missing or differs from its inputs
+        """
+        if not self._enabled:
+            self.logger.info("Skipping check because the project is not enabled")
+            return
+
+        with self._session.spinner("Syncing project data..."):
+            self._data.sync()
+
+        with self._session.spinner("Checking generated files..."):
+            self._data.plugins.provider.check()
+
     def publish(self) -> None:
         """Publishes the project
 

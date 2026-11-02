@@ -108,3 +108,7 @@ class MockProvider(Provider):
     def publish(self) -> None:
         """Updates the provider"""
         pass
+
+    def check(self) -> None:
+        """Checks generated files; the mock generates none"""
+        pass

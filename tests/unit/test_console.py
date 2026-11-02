@@ -9,7 +9,9 @@ import typer
 from typer.testing import CliRunner
 
 from cppython.console.entry import _parse_groups_argument, app, configure, install
+from cppython.console.schema import ConsoleConfiguration
 from cppython.utility.exception import ConfigurationRequiredError
+from cppython.utility.generated import GeneratedFilePolicy
 
 runner = CliRunner()
 
@@ -238,3 +240,72 @@ class TestInstallAndUpdate:
 
         with pytest.raises(ConfigurationRequiredError, match='no default configuration'):
             configure(context=cast(typer.Context, object()))
+
+
+class TestGeneratedFilePolicy:
+    """Tests the generated file policy flags and the check command."""
+
+    @staticmethod
+    def _capture_policy(monkeypatch: pytest.MonkeyPatch) -> list[GeneratedFilePolicy]:
+        policies: list[GeneratedFilePolicy] = []
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                pass
+
+            def update(self, groups: list[str] | None = None) -> None:
+                pass
+
+            def check(self) -> None:
+                policies.append(GeneratedFilePolicy.LOCKED)
+
+        @contextmanager
+        def session_project(context: typer.Context) -> Any:
+            configuration = context.find_object(ConsoleConfiguration)
+            assert configuration is not None
+            policies.append(configuration.project_configuration.generated_files)
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+        return policies
+
+    @staticmethod
+    @pytest.mark.parametrize('command', ['install', 'update'])
+    @pytest.mark.parametrize(
+        ('flags', 'policy'),
+        [
+            ([], GeneratedFilePolicy.UPDATE),
+            (['--locked'], GeneratedFilePolicy.LOCKED),
+            (['--force-regenerate'], GeneratedFilePolicy.FORCE),
+        ],
+    )
+    def test_flags_set_policy(
+        monkeypatch: pytest.MonkeyPatch, command: str, flags: list[str], policy: GeneratedFilePolicy
+    ) -> None:
+        """--locked and --force-regenerate select the policy the project runs under."""
+        policies = TestGeneratedFilePolicy._capture_policy(monkeypatch)
+
+        result = runner.invoke(app, [command, *flags])
+
+        assert result.exit_code == 0, result.output
+        assert policies == [policy]
+
+    @staticmethod
+    def test_flags_are_exclusive(monkeypatch: pytest.MonkeyPatch) -> None:
+        """--locked and --force-regenerate contradict each other."""
+        policies = TestGeneratedFilePolicy._capture_policy(monkeypatch)
+
+        result = runner.invoke(app, ['install', '--locked', '--force-regenerate'])
+
+        assert result.exit_code != 0
+        assert policies == []
+
+    @staticmethod
+    def test_check_command(monkeypatch: pytest.MonkeyPatch) -> None:
+        """The check command runs the project check."""
+        policies = TestGeneratedFilePolicy._capture_policy(monkeypatch)
+
+        result = runner.invoke(app, ['check'])
+
+        assert result.exit_code == 0, result.output
+        assert policies == [GeneratedFilePolicy.UPDATE, GeneratedFilePolicy.LOCKED]

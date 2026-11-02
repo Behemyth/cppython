@@ -8,6 +8,7 @@ from packaging.requirements import Requirement
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.types import DirectoryPath
 
+from cppython.utility.generated import GeneratedFilePolicy
 from cppython.utility.plugin import Plugin as SynodicPlugin
 from cppython.utility.utility import TypeName
 
@@ -23,6 +24,9 @@ class ProjectData(CPPythonModel, extra='forbid'):
 
     project_root: Annotated[Path, Field(description='The path where the pyproject.toml exists')]
     verbosity: Annotated[int, Field(description='The verbosity level as an integer [0,2]')] = 0
+    generated_files: Annotated[
+        GeneratedFilePolicy, Field(description='How plugins may change the files they generate into the project')
+    ] = GeneratedFilePolicy.UPDATE
 
 
 class ProjectConfiguration(CPPythonModel, extra='forbid'):
@@ -43,6 +47,9 @@ class ProjectConfiguration(CPPythonModel, extra='forbid'):
     debug: Annotated[
         bool, Field(description='Debug mode. Additional processing will happen to expose more debug information')
     ] = False
+    generated_files: Annotated[
+        GeneratedFilePolicy, Field(description='How plugins may change the files they generate into the project')
+    ] = GeneratedFilePolicy.UPDATE
 
     @field_validator('verbosity')
     @classmethod

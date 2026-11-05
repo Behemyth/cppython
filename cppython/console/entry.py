@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.syntax import Syntax
 
 from cppython.configuration import ConfigurationLoader
+from cppython.console.local import local_app
 from cppython.console.schema import ConsoleConfiguration
 from cppython.core.schema import PluginReport, ProjectConfiguration
 from cppython.project import Project
@@ -48,6 +49,11 @@ app.add_typer(info_app, name="info")
 
 list_app = typer.Typer(no_args_is_help=True, help="List project entities.")
 app.add_typer(list_app, name="list")
+
+app.add_typer(local_app, name="local")
+
+# Subcommands that work outside a project, e.g. when an agent or Porringer configures a machine.
+_PROJECTLESS_COMMANDS = {"local"}
 
 
 def _get_configuration(context: typer.Context) -> ConsoleConfiguration:
@@ -216,6 +222,9 @@ def main(
         verbose: The verbosity level
         debug: Debug mode
     """
+    if context.invoked_subcommand in _PROJECTLESS_COMMANDS:
+        return
+
     path = _find_pyproject_file()
 
     project_configuration = ProjectConfiguration(

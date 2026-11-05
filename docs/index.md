@@ -7,6 +7,8 @@ CPPython lets you declare C++ dependencies in `pyproject.toml` and consume them 
 - **As a PEP 517 build backend**: declare `cppython.build` in `[build-system]`; CPPython installs missing native dependencies before delegating to scikit-build-core or meson-python. See [Build Backend](build-backend/index.md).
 - **As a CLI**: run `cppython install` to install dependencies, then `cppython configure` to configure a standalone build tree. Use `install --configure` to combine those steps. Build and test through the CLI without a Python packaging step.
 
+To develop several packages together, choose per dependency between its published package and a local checkout with `cppython local`. See [Local Sources](local-sources.md).
+
 ## Plugin architecture
 
 CPPython resolves dependencies and generates build configuration through three kinds of plugins:

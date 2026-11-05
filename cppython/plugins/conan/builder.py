@@ -74,6 +74,8 @@ class CPPythonBase(ConanFile):
         """
         self.folders.build = "."
         self.folders.generators = "generators"
+        # A local (editable) checkout exports its CMake package files from its build tree
+        self.cpp.build.builddirs = [f"lib/cmake/{{self.name}}"]
 
     def requirements(self):
         """CPPython managed requirements."""

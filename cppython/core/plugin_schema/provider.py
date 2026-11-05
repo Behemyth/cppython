@@ -123,3 +123,21 @@ class Provider(DataPlugin, SyncProducer, Protocol):
             GeneratedFileError: If a generated file is missing or differs from its inputs
         """
         raise NotImplementedError
+
+    def sync_local_sources(self) -> list[str]:
+        """Bring installed dependencies in line with the user's local-source selection.
+
+        Providers that support local sources reinstall when the selection changed since the
+        last install. The default supports none.
+
+        Returns:
+            Lines summarizing the local sources in use
+        """
+        return []
+
+    def build_local_sources(self, build_type: str | None = None) -> None:
+        """Build the local-source dependencies a consumer build needs, dependencies first.
+
+        Args:
+            build_type: The dependency build type the consumer uses, or None for all of them
+        """

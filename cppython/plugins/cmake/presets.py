@@ -81,6 +81,29 @@ class PresetIndex:
                     return configure
             return name
 
+        sibling: PresetKind = "test" if kind == "build" else "build"
+        if self._usable(sibling, name):
+            configure = self.field(sibling, name, "configurePreset")
+            configuration = self.field(sibling, name, "configuration")
+            matches = [
+                candidate
+                for candidate in self._presets[kind]
+                if self._usable(kind, candidate)
+                and self.field(kind, candidate, "configurePreset") == configure
+                and self.field(kind, candidate, "configuration") == configuration
+            ]
+            if len(matches) == 1:
+                return matches[0]
+            if not matches:
+                raise ConfigurationRequiredError(
+                    f"Preset '{name}' has no matching {kind} preset for configuration "
+                    f"'{configuration or 'unspecified'}'."
+                )
+            raise ConfigurationRequiredError(
+                f"Preset '{name}' has several matching {kind} presets; choose one with --configuration: "
+                + ", ".join(matches)
+            )
+
         if not self._usable("configure", name):
             return name
 

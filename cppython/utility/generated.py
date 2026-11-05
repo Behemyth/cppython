@@ -172,12 +172,14 @@ def synchronize(
 
     path.write_text(expected, encoding='utf-8')
 
+    # Local sources regenerate files in other checkouts, so name the project too
+    name = f'{path.parent.name}/{path.name}'
     match state:
         case GeneratedFileState.MISSING:
-            logger.info('Created %s', path.name)
+            logger.info('Created %s', name)
         case GeneratedFileState.STALE:
-            logger.warning('Regenerated %s from pyproject.toml; commit the change', path.name)
+            logger.warning('Regenerated %s from pyproject.toml; commit the change', name)
         case GeneratedFileState.MODIFIED:
-            logger.warning('Overwrote hand edits in %s', path.name)
+            logger.warning('Overwrote hand edits in %s', name)
 
     return state

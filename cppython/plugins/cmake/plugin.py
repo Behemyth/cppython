@@ -1,5 +1,6 @@
 """The CMake generator implementation"""
 
+import json
 import re
 import subprocess
 from logging import getLogger
@@ -59,6 +60,7 @@ class CMakeGenerator(Generator):
 
         self._cppython_preset_directory = self.core_data.cppython_data.tool_path / "cppython"
         self._provider_directory = self._cppython_preset_directory / "providers"
+        self._toolchain_files: dict[str, Path] = {}
 
     @staticmethod
     def features(directory: Path) -> SupportedFeatures:
@@ -95,6 +97,7 @@ class CMakeGenerator(Generator):
         """
         match sync_data:
             case CMakeSyncData():
+                self._toolchain_files = dict(sync_data.toolchain_files)
                 self._cppython_preset_directory.mkdir(parents=True, exist_ok=True)
 
                 cppython_preset_file = self._cppython_preset_directory / "CPPython.json"
@@ -205,13 +208,86 @@ class CMakeGenerator(Generator):
         self._configure_operation("build", preset, index)
         self._run([self._cmake_command(), "--build", "--preset", preset])
 
-    def _configure_operation(
-        self, kind: Literal["build", "test"], preset: str, index: PresetIndex
-    ) -> None:
+    def _configure_operation(self, kind: Literal["build", "test"], preset: str, index: PresetIndex) -> None:
         """Configure the build tree selected by a build or test preset."""
         configure_preset = index.field(kind, preset, "configurePreset")
         if configure_preset:
+            self._request_codemodel(index, configure_preset)
             self._run([self._cmake_command(), "--preset", configure_preset])
+
+    def _request_codemodel(self, index: PresetIndex, preset: str) -> Path | None:
+        """Request CMake's target metadata for the selected configure preset."""
+        binary_dir = index.binary_dir(preset)
+        if binary_dir is None:
+            return None
+        query = binary_dir / ".cmake" / "api" / "v1" / "query"
+        query.mkdir(parents=True, exist_ok=True)
+        (query / "codemodel-v2").touch()
+        return binary_dir
+
+    def _codemodel_targets(self, index: PresetIndex, preset: str, configuration: str | None) -> list[dict[str, Any]]:
+        """Read target metadata for the selected build configuration."""
+        binary_dir = index.binary_dir(preset)
+        if binary_dir is None:
+            raise ConfigurationRequiredError(
+                f"Cannot resolve the binaryDir for configure preset '{preset}' to inspect build targets."
+            )
+        reply_dir = binary_dir / ".cmake" / "api" / "v1" / "reply"
+        indexes = sorted(reply_dir.glob("index-*.json"), key=lambda path: path.stat().st_mtime)
+        if not indexes:
+            raise FileNotFoundError(
+                f"CMake has no file API reply in '{reply_dir}'. Configure the selected preset first."
+            )
+        reply = json.loads(indexes[-1].read_text(encoding="utf-8"))
+        codemodel_file = reply.get("reply", {}).get("codemodel-v2", {}).get("jsonFile")
+        if not codemodel_file:
+            raise FileNotFoundError(f"CMake's file API reply in '{reply_dir}' does not contain codemodel-v2 data.")
+        codemodel = json.loads((reply_dir / codemodel_file).read_text(encoding="utf-8"))
+        configurations = codemodel.get("configurations", [])
+        if configuration is None:
+            if len(configurations) != 1:
+                raise ConfigurationRequiredError(
+                    f"Build preset for '{preset}' does not select one of {len(configurations)} CMake configurations."
+                )
+            selected = configurations[0]
+        else:
+            matches = [item for item in configurations if item.get("name", "").casefold() == configuration.casefold()]
+            if len(matches) != 1:
+                raise ConfigurationRequiredError(
+                    f"CMake configuration '{configuration}' is not uniquely available for preset '{preset}'."
+                )
+            selected = matches[0]
+        targets = []
+        for target in selected.get("targets", []):
+            target_data = json.loads((reply_dir / target["jsonFile"]).read_text(encoding="utf-8"))
+            targets.append(target_data)
+        return targets
+
+    def dependency_build_type(self, configuration: str | None = None) -> str | None:
+        """The provider build type whose toolchain the configuration's configure preset uses.
+
+        Args:
+            configuration: Optional CMake configure, build or test preset name.
+
+        Returns:
+            The build type, or None if the preset's toolchain isn't one the provider generated
+        """
+        if not self._toolchain_files:
+            return None
+        project_root = self.core_data.project_data.project_root
+        index = PresetIndex(project_root)
+        try:
+            preset = self._preset("configure", configuration, index)
+        except ConfigurationRequiredError:
+            return None
+        toolchain = index.field("configure", preset, "toolchainFile")
+        if not isinstance(toolchain, str):
+            return None
+        selected = (project_root / toolchain.replace("${sourceDir}", str(project_root))).resolve()
+        for build_type, path in self._toolchain_files.items():
+            if (project_root / path).resolve() == selected:
+                return build_type
+        return None
 
     def configure(self, configuration: str | None = None) -> None:
         """Configures the project using the resolved CMake configure preset.
@@ -221,6 +297,7 @@ class CMakeGenerator(Generator):
         """
         index = PresetIndex(self.core_data.project_data.project_root)
         preset = self._preset("configure", configuration, index)
+        self._request_codemodel(index, preset)
         try:
             self._run([self._cmake_command(), "--preset", preset])
         except subprocess.CalledProcessError as error:
@@ -268,16 +345,38 @@ class CMakeGenerator(Generator):
         Raises:
             FileNotFoundError: If the target executable cannot be found
         """
-        build_path = self.core_data.cppython_data.build_path
-
-        # Search for the executable in the build directory
-        candidates = list(build_path.rglob(target)) + list(build_path.rglob(f"{target}.exe"))
-        executables = [c for c in candidates if c.is_file()]
-
-        if not executables:
-            raise FileNotFoundError(f"Could not find executable '{target}' in build directory: {build_path}")
-
-        executable = executables[0]
+        index = PresetIndex(self.core_data.project_data.project_root)
+        build_preset = self._preset("build", configuration, index)
+        configure_preset = index.field("build", build_preset, "configurePreset")
+        if configure_preset is None:
+            raise ConfigurationRequiredError(f"Build preset '{build_preset}' does not identify a configure preset.")
+        self._request_codemodel(index, configure_preset)
+        self._run([self._cmake_command(), "--preset", configure_preset])
+        build_configuration = index.field("build", build_preset, "configuration")
+        targets = self._codemodel_targets(index, configure_preset, build_configuration)
+        target_name = target[:-4] if target.casefold().endswith(".exe") else target
+        matches = [
+            artifact
+            for item in targets
+            if item.get("name") == target_name and item.get("type") == "EXECUTABLE"
+            for artifact in item.get("artifacts", [])
+            if Path(artifact["path"]).stem.casefold() == target_name.casefold()
+            and Path(artifact["path"]).suffix.casefold() in {".exe", ""}
+        ]
+        if len(matches) != 1:
+            if not matches:
+                raise FileNotFoundError(
+                    f"Could not find executable target '{target}' for build preset '{build_preset}'."
+                )
+            raise ConfigurationRequiredError(
+                f"Executable target '{target}' resolves to multiple artifacts for build preset '{build_preset}'."
+            )
+        binary_dir = index.binary_dir(configure_preset)
+        if binary_dir is None:
+            raise ConfigurationRequiredError(
+                f"Cannot resolve the binaryDir for configure preset '{configure_preset}' to run build targets."
+            )
+        executable = binary_dir / matches[0]["path"]
         run_subprocess([str(executable)], cwd=self.data.preset_file.parent, logger=logger)
 
     def list_targets(self) -> list[str]:

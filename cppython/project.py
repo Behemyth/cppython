@@ -144,6 +144,25 @@ class Project(API):
         with self._session.spinner("Installing dependencies..."):
             self._data.plugins.provider.install(groups=groups)
 
+        self._report_local_sources(self._data.plugins.provider.sync_local_sources())
+
+    def _report_local_sources(self, lines: list[str]) -> None:
+        """Show which local checkouts are in use, even when routine output is hidden."""
+        for line in lines:
+            self.logger.info("%s", line, extra={"notice": True})
+
+    def _use_local_sources(self, configuration: str | None) -> None:
+        """Reinstall if the local-source selection changed, then build the local checkouts the configuration uses."""
+        provider = self._data.plugins.provider
+        with self._session.spinner("Checking local sources..."):
+            lines = provider.sync_local_sources()
+        self._report_local_sources(lines)
+        if not lines:
+            return
+        build_type = self._data.plugins.generator.dependency_build_type(configuration)
+        with self._session.spinner("Building local sources..."):
+            provider.build_local_sources(build_type)
+
     def update(self, groups: list[str] | None = None) -> None:
         """Updates project dependencies
 
@@ -178,6 +197,8 @@ class Project(API):
 
         with self._session.spinner("Updating dependencies..."):
             self._data.plugins.provider.update(groups=groups)
+
+        self._report_local_sources(self._data.plugins.provider.sync_local_sources())
 
     def check(self) -> None:
         """Verifies generated project files are current without writing them.
@@ -287,6 +308,8 @@ class Project(API):
         with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
+        self._use_local_sources(configuration)
+
         with self._session.spinner("Building project..."):
             self._data.plugins.generator.build(configuration=configuration)
 
@@ -310,6 +333,8 @@ class Project(API):
 
         with self._session.spinner("Syncing project data..."):
             self._data.sync()
+
+        self._use_local_sources(configuration)
 
         with self._session.spinner("Running tests..."):
             return self._data.plugins.generator.test(configuration=configuration)
@@ -335,6 +360,8 @@ class Project(API):
         with self._session.spinner("Syncing project data..."):
             self._data.sync()
 
+        self._use_local_sources(configuration)
+
         with self._session.spinner("Running benchmarks..."):
             return self._data.plugins.generator.bench(configuration=configuration)
 
@@ -356,6 +383,8 @@ class Project(API):
 
         with self._session.spinner("Syncing project data..."):
             self._data.sync()
+
+        self._use_local_sources(configuration)
 
         with self._session.spinner(f"Running {target}..."):
             self._data.plugins.generator.run(target, configuration=configuration)

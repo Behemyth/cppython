@@ -136,3 +136,14 @@ class Generator(DataPlugin, SyncConsumer, Protocol):
             A list of target names found in the build directory.
         """
         raise NotImplementedError
+
+    def dependency_build_type(self, configuration: str | None = None) -> str | None:
+        """The provider build type whose dependencies a configuration uses.
+
+        Args:
+            configuration: Optional named configuration override.
+
+        Returns:
+            The build type, or None if the generator can't tell
+        """
+        return None

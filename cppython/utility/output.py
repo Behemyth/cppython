@@ -125,19 +125,23 @@ want spinners or a log file (tests, library usage, etc.)."""
 
 
 class _CollectingHandler(logging.Handler):
-    """Keeps warning messages so they can be shown once the spinner is gone.
+    """Keeps warnings and notices so they can be shown once the spinner is gone.
 
-    Error records are skipped: subprocess stderr is logged at that level line by line, and
-    failures already print the relevant output tail.
+    A notice is an INFO record logged with ``extra={"notice": True}``: a short status line the
+    user should see even in quiet mode. Error records are skipped: subprocess stderr is logged at
+    that level line by line, and failures already print the relevant output tail.
     """
 
     def __init__(self) -> None:
-        super().__init__(logging.WARNING)
+        super().__init__(logging.INFO)
         self.messages: list[str] = []
+        self.notices: list[str] = []
 
     def emit(self, record: logging.LogRecord) -> None:
         if record.levelno == logging.WARNING:
             self.messages.append(record.getMessage())
+        elif record.levelno == logging.INFO and getattr(record, "notice", False):
+            self.notices.append(record.getMessage())
 
 
 class OutputSession:
@@ -230,9 +234,11 @@ class OutputSession:
             self._file_handler = None
 
         warnings: list[str] = []
+        notices: list[str] = []
         if self._warning_handler is not None:
             root_logger.removeHandler(self._warning_handler)
             warnings = self._warning_handler.messages
+            notices = list(dict.fromkeys(self._warning_handler.notices))
             self._warning_handler = None
 
         # Restore previously removed console handlers
@@ -246,6 +252,8 @@ class OutputSession:
             self._original_level = None
 
         # Print the result
+        for message in notices:
+            self._console.print(escape(message), highlight=False)
         for message in warnings:
             self._console.print(
                 f"[bold yellow]Warning:[/bold yellow] {escape(message)}", highlight=False

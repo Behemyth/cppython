@@ -8,12 +8,15 @@ installation, and synchronization with other tools.
 import contextlib
 import io
 import os
+import tomllib
 from logging import Logger, getLogger
 from pathlib import Path
 from typing import Any
 
 from conan.api.conan_api import ConanAPI
 from conan.cli.cli import Cli
+from conan.internal.api.local.editable import EditablePackages
+from packaging.requirements import Requirement
 
 from cppython.core.plugin_schema.generator import SyncConsumer
 from cppython.core.plugin_schema.provider import (
@@ -28,10 +31,15 @@ from cppython.core.schema import (
     SupportedFeatures,
     SyncData,
 )
+from cppython.local_sources import project_selection
+from cppython.local_sources.operations import canonical_name
+from cppython.local_sources.schema import Severity
 from cppython.plugins.cmake.plugin import CMakeGenerator
 from cppython.plugins.cmake.resolution import verify_cmake_tool
 from cppython.plugins.cmake.schema import CMakeSyncData, EffectiveCMakeTool
+from cppython.plugins.conan import local
 from cppython.plugins.conan.builder import Builder
+from cppython.plugins.conan.local import LocalPackage, LocalSourceError
 from cppython.plugins.conan.resolution import (
     resolve_conan_data,
     resolve_conan_dependency,
@@ -45,6 +53,8 @@ from cppython.utility.exception import (
     ProviderInstallationError,
 )
 from cppython.utility.generated import GeneratedFileError, GeneratedFilePolicy
+from cppython.utility.msvc import developer_environment
+from cppython.utility.subprocess import run_subprocess
 from cppython.utility.utility import TypeName
 
 
@@ -74,6 +84,9 @@ class ConanProvider(Provider):
         self._cmake_binary: str | None = None
         self._cmake_tool: EffectiveCMakeTool | None = None
         self._logger = getLogger("cppython.conan")
+        # Every Conan command sees only these editables, never the global `conan editable` registry
+        self._editables = EditablePackages()
+        self._local: tuple[list[LocalPackage], bool] | None = None
 
     def _capture_conan_call(self, args: list[str]) -> None:
         """Run a Conan CLI command while capturing stdout/stderr to the logger.
@@ -86,6 +99,11 @@ class ConanProvider(Provider):
         """
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
+
+        try:
+            local.inject(self._conan_api, self._editables)
+        except LocalSourceError as error:
+            raise ProviderInstallationError("conan", str(error), error) from error
 
         try:
             with (
@@ -154,15 +172,187 @@ class ConanProvider(Provider):
         # Every group is declared in the recipe, so unrequested test requirements are skipped at install time
         include_test = bool(groups) and "test" in groups
 
+        packages = self._local_packages()
+        build_path = self.core_data.cppython_data.build_path
+
         try:
             build_types = self.data.build_types
             for build_type in build_types:
+                self._editables = local.editables(packages, build_path, build_type)
+                for package in packages:
+                    logger.info("Preparing local %s for build type: %s", package.name, build_type)
+                    self._prepare_local_package(package, update, build_type)
                 logger.info("Installing dependencies for build type: %s", build_type)
                 self._run_conan_install(conanfile_path, update, build_type, logger, include_test=include_test)
-        except ProviderInstallationError:
+        except ProviderInstallationError, GeneratedFileError:
             raise
         except Exception as e:
             raise ProviderInstallationError("conan", f"Failed to install dependencies: {e}", e) from e
+        finally:
+            self._editables = EditablePackages()
+
+        local.write_stamp(build_path, packages, self.data.build_types, groups)
+
+    def _local_packages(self) -> list[LocalPackage]:
+        """The user's selected local checkouts that apply to this project, dependencies first.
+
+        Raises:
+            ProviderInstallationError: If a selected checkout can't be used
+        """
+        return self._local_selection()[0]
+
+    def _local_selection(self) -> tuple[list[LocalPackage], bool]:
+        """The applicable local checkouts and whether the user's selection manages any package."""
+        if self._local is not None:
+            return self._local
+
+        cppython_data = self.core_data.cppython_data
+        requirements = [
+            *cppython_data.dependencies,
+            *(requirement for group in cppython_data.dependency_groups.values() for requirement in group),
+        ]
+        try:
+            selection = project_selection(
+                self.core_data.pep621_data.name, [requirement.name for requirement in requirements]
+            )
+        except Exception as error:
+            message = f"Can't read the local-source selection: {error}"
+            raise ProviderInstallationError("conan", message, error) from error
+
+        if not selection.ok:
+            problems = [
+                f"{diagnostic.message}" + (f" Fix: {diagnostic.fix}" if diagnostic.fix else "")
+                for diagnostic in selection.diagnostics
+                if diagnostic.severity is Severity.ERROR
+            ]
+            raise ProviderInstallationError("conan", "Local sources can't be applied: " + " ".join(problems))
+
+        packages: list[LocalPackage] = []
+        names: dict[str, str] = {}
+        for selected in selection.local:
+            path = Path(str(selected.path))
+            if not (path / "conanfile.py").is_file():
+                raise ProviderInstallationError(
+                    "conan",
+                    f"Local '{selected.name}' at {path} has no conanfile.py. Run 'cppython install' there once.",
+                )
+            try:
+                reference = local.recipe_reference(self._conan_api, path / "conanfile.py")
+            except Exception as error:
+                raise ProviderInstallationError(
+                    "conan", f"Can't read the recipe of local '{selected.name}' at {path}: {error}", error
+                ) from error
+            names[canonical_name(selected.name)] = reference.split("/")[0]
+            packages.append(LocalPackage(name=reference.split("/")[0], path=path, reference=reference))
+
+        packages = [
+            LocalPackage(
+                name=package.name,
+                path=package.path,
+                reference=package.reference,
+                requires=tuple(names[name] for name in requires if name in names),
+            )
+            for package, requires in zip(packages, selection.requires.values(), strict=True)
+        ]
+        self._local = (packages, selection.managed)
+        return self._local
+
+    def _local_generation_data(self, package: LocalPackage) -> ConanfileGenerationData:
+        """The conanfile_base.py inputs a local checkout's own pyproject.toml declares."""
+        data = tomllib.loads((package.path / "pyproject.toml").read_text(encoding="utf-8"))
+        table = data.get("tool", {}).get("cppython", {})
+        name, version = package.reference.split("/", 1)
+        return ConanfileGenerationData(
+            dependencies=[resolve_conan_dependency(Requirement(text)) for text in table.get("dependencies", [])],
+            dependency_groups={
+                group: [resolve_conan_dependency(Requirement(text)) for text in requirements]
+                for group, requirements in table.get("dependency-groups", {}).items()
+            },
+            name=name,
+            version=version,
+        )
+
+    def _prepare_local_package(self, package: LocalPackage, update: bool, build_type: str) -> None:
+        """Install a local checkout's dependencies into its build tree and configure it.
+
+        The checkout's CPPython-managed conanfile_base.py is regenerated first, exactly as
+        'cppython install' in that checkout would, so its requirements match its pyproject.toml.
+        """
+        self.builder.generate_conanfile(package.path, self._local_generation_data(package))
+
+        folder = local.output_folder(self.core_data.cppython_data.build_path, build_type, package.name)
+        command_args = ["install", str(package.conanfile), "--output-folder", str(folder), "--build", "missing"]
+        if update:
+            command_args.append("--update")
+        command_args.extend(["-c", "tools.graph:skip_test=True"])
+        command_args.extend(self._settings_args(build_type))
+        command_args.extend(["-c", "&:tools.cmake.cmakedeps:new=will_break_next"])
+        command_args.extend(["-c", "tools.cmake.cmaketoolchain:generator=Ninja Multi-Config"])
+        command_args.extend(self._cmake_program_args())
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(str(package.path))
+            self._capture_conan_call(command_args)
+        finally:
+            os.chdir(original_cwd)
+
+        run_subprocess(
+            local.configure_command(self._cmake_binary or "cmake", package, folder, build_type),
+            cwd=package.path,
+            logger=self._logger,
+            env=developer_environment(),
+        )
+        if local.package_config(package, folder) is None:
+            raise ProviderInstallationError(
+                "conan",
+                f"Local '{package.name}' at {package.path} doesn't export {package.name}Config.cmake from its build "
+                f"tree, so consumers can't find it. Add export(EXPORT ...) and copy the package config files to "
+                f"${{CMAKE_CURRENT_BINARY_DIR}}/${{CMAKE_INSTALL_LIBDIR}}/cmake/{package.name} in its CMakeLists.txt.",
+            )
+
+    def sync_local_sources(self) -> list[str]:
+        """Reinstall when the local-source selection changed since the last install, then summarize it.
+
+        Returns:
+            One line per local checkout in use, or a note that published packages are used
+        """
+        build_path = self.core_data.cppython_data.build_path
+        packages, managed = self._local_selection()
+        stamp = local.read_stamp(build_path)
+        current = local.signature(packages, self.data.build_types)
+
+        if (stamp is not None or packages) and (stamp is None or stamp.get("signature") != current):
+            groups = stamp.get("groups") if stamp else list(self.core_data.cppython_data.dependency_groups) or None
+            self._logger.info("The local-source selection changed since the last install; reinstalling")
+            self._install_dependencies(groups=groups)
+
+        if packages:
+            return [local.checkout_summary(package) for package in packages]
+        if managed:
+            return ["local sources: none apply to this project; using published packages"]
+        return []
+
+    def build_local_sources(self, build_type: str | None = None) -> None:
+        """Incrementally build each local checkout's build tree, dependencies first.
+
+        Args:
+            build_type: The dependency build type the consumer uses, or None for every configured one
+        """
+        packages = self._local_packages()
+        build_types = [build_type] if build_type else self.data.build_types
+        for selected_type in build_types:
+            for package in packages:
+                folder = local.output_folder(self.core_data.cppython_data.build_path, selected_type, package.name)
+                if not (folder / "CMakeCache.txt").is_file():
+                    raise InstallationVerificationError("conan", [f"local {package.name} build tree ({folder})"])
+                self._logger.info("Building local %s (%s)", package.name, selected_type)
+                run_subprocess(
+                    [self._cmake_binary or "cmake", "--build", str(folder), "--config", selected_type],
+                    cwd=package.path,
+                    logger=self._logger,
+                    env=developer_environment(),
+                )
 
     def _generation_data(self) -> ConanfileGenerationData:
         """Resolve the data conanfile_base.py is generated from.
@@ -463,6 +653,14 @@ class ConanProvider(Provider):
 
         if not conanfile_path.exists():
             raise FileNotFoundError(f"conanfile.py not found at {conanfile_path}")
+
+        if packages := self._local_packages():
+            names = ", ".join(package.name for package in packages)
+            raise ProviderInstallationError(
+                "conan",
+                f"Refusing to publish while local sources apply ({names}); a package built against unpublished "
+                "checkouts can't be reproduced. Publish with CPPYTHON_LOCAL_SOURCES=off or 'cppython local off'.",
+            )
 
         try:
             # Create packages for each configured build type

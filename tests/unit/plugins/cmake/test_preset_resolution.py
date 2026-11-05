@@ -56,7 +56,13 @@ def fixture_index(tmp_path: Path) -> PresetIndex:
                 },
                 {"name": "vs-debug", "configurePreset": "vs"},
             ],
-            "testPresets": [{"name": "ninja-debug", "configurePreset": "ninja"}],
+            "testPresets": [
+                {
+                    "name": "unit-debug",
+                    "configurePreset": "ninja",
+                    "configuration": "Debug",
+                }
+            ],
         },
     )
     return PresetIndex(tmp_path)
@@ -70,7 +76,18 @@ def test_build_preset_maps_to_its_configure_preset(index: PresetIndex) -> None:
 def test_configure_preset_maps_to_its_only_build_preset(index: PresetIndex) -> None:
     """A configure preset with exactly one build preset resolves to it."""
     assert index.resolve("build", "vs") == "vs-debug"
-    assert index.resolve("test", "ninja") == "ninja-debug"
+    assert index.resolve("test", "ninja") == "unit-debug"
+
+
+def test_build_preset_maps_to_matching_test_preset(index: PresetIndex) -> None:
+    """A shared build/test configuration can use the build preset name."""
+    assert index.resolve("test", "ninja-debug") == "unit-debug"
+
+
+def test_build_preset_without_matching_test_configuration_fails(index: PresetIndex) -> None:
+    """A known build preset is not passed through as an invalid test preset."""
+    with pytest.raises(ConfigurationRequiredError, match="no matching test preset"):
+        index.resolve("test", "ninja-release")
 
 
 def test_configure_preset_with_several_build_presets_lists_them(

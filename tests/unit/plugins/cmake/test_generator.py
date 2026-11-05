@@ -1,10 +1,13 @@
 """Unit test the provider plugin"""
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from cppython.plugins.cmake.plugin import CMakeGenerator
+from cppython.plugins.cmake.presets import PresetIndex
 from cppython.plugins.cmake.resolution import CMakeToolResolutionError
 from cppython.plugins.cmake.schema import (
     CMakeConfiguration,
@@ -197,3 +200,85 @@ class TestCPPythonGenerator(GeneratorUnitTestContract[CMakeGenerator]):
             plugin.configure()
 
         run_spy.assert_not_called()
+
+    @staticmethod
+    def test_run_selects_executable_from_requested_build_configuration(
+        plugin: CMakeGenerator,
+        mocker: Any,
+        tmp_path: Path,
+    ) -> None:
+        """A target in another configuration cannot win by filesystem traversal order."""
+        (tmp_path / "CMakePresets.json").write_text(
+            json.dumps(
+                {
+                    "version": 9,
+                    "configurePresets": [{"name": "dev", "binaryDir": "${sourceDir}/build"}],
+                    "buildPresets": [
+                        {
+                            "name": "dev-release",
+                            "configurePreset": "dev",
+                            "configuration": "Release",
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        reply_dir = tmp_path / "build" / ".cmake" / "api" / "v1" / "reply"
+        reply_dir.mkdir(parents=True)
+        (reply_dir / "index-test.json").write_text(
+            json.dumps({"reply": {"codemodel-v2": {"jsonFile": "codemodel-v2-test.json"}}}),
+            encoding="utf-8",
+        )
+        (reply_dir / "codemodel-v2-test.json").write_text(
+            json.dumps(
+                {
+                    "configurations": [
+                        {
+                            "name": "Debug",
+                            "targets": [{"jsonFile": "viewer-debug.json"}],
+                        },
+                        {
+                            "name": "Release",
+                            "targets": [{"jsonFile": "viewer-release.json"}],
+                        },
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (reply_dir / "viewer-debug.json").write_text(
+            json.dumps(
+                {
+                    "name": "viewer",
+                    "type": "EXECUTABLE",
+                    "artifacts": [{"path": "Debug/viewer.exe"}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        (reply_dir / "viewer-release.json").write_text(
+            json.dumps(
+                {
+                    "name": "viewer",
+                    "type": "EXECUTABLE",
+                    "artifacts": [
+                        {"path": "Release/viewer.exe"},
+                        {"path": "Release/viewer.pdb"},
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        index = mocker.patch(
+            "cppython.plugins.cmake.plugin.PresetIndex",
+            return_value=PresetIndex(tmp_path),
+        )
+        mocker.patch.object(plugin, "_cmake_command", return_value="cmake")
+        mocker.patch.object(plugin, "_run")
+        run_spy = mocker.patch("cppython.plugins.cmake.plugin.run_subprocess")
+
+        plugin.run("viewer", "dev-release")
+
+        index.assert_called_once_with(plugin.core_data.project_data.project_root)
+        assert run_spy.call_args.args[0] == [str(tmp_path / "build" / "Release" / "viewer.exe")]

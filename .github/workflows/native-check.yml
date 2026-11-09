@@ -26,11 +26,12 @@ concurrency:
 jobs:
   check:
     if: github.event_name != 'workflow_dispatch'
-    uses: Behemyth/.github/.github/workflows/native-check.yml@feature/native-identity-matrix
+    uses: Behemyth/.github/.github/workflows/native-check.yml@e81836fb615107e90135e64069d3471566673a9a
     with:
       fast-install: &install pdm install -G cmake,conan,git,meson
       fast-command: pdm run check-fast
       native-install: *install
+      configuration-ref: &configuration-ref f2a4e069c97998a36782daaeb8566c43a20b2065
       native-mode: command
       native-identities: &identities >-
         ["windows-x64-msvc", "windows-arm64-msvc", "linux-x64-clang-libcxx",
@@ -38,11 +39,12 @@ jobs:
 
   development-check:
     if: github.event_name == 'workflow_dispatch'
-    uses: Behemyth/.github/.github/workflows/native-check.yml@feature/native-identity-matrix
+    uses: Behemyth/.github/.github/workflows/native-check.yml@e81836fb615107e90135e64069d3471566673a9a
     with:
       fast-install: *install
       fast-command: pdm run check-fast
       native-install: *install
+      configuration-ref: *configuration-ref
       native-mode: command
       native-identities: *identities
       targeted: true

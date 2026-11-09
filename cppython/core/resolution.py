@@ -1,6 +1,7 @@
 """Data conversion routines"""
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -8,6 +9,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from pydantic import BaseModel, DirectoryPath, ValidationError
 
 from cppython.core.exception import ConfigException
+from cppython.core.identity import BuildIdentity, select_identity
 from cppython.core.plugin_schema.generator import Generator, GeneratorPluginGroupData
 from cppython.core.plugin_schema.provider import Provider, ProviderPluginGroupData
 from cppython.core.plugin_schema.scm import SCM, SCMPluginGroupData
@@ -40,6 +42,7 @@ def resolve_project_configuration(project_configuration: ProjectConfiguration) -
         project_root=project_configuration.project_root,
         verbosity=project_configuration.verbosity,
         generated_files=project_configuration.generated_files,
+        identity=project_configuration.identity,
     )
 
 
@@ -112,6 +115,24 @@ class PluginCPPythonData(CPPythonModel):
     scm_name: TypeName
 
 
+def _resolve_identity(
+    local_configuration: CPPythonLocalConfiguration, project_data: ProjectData, root_directory: Path
+) -> BuildIdentity | None:
+    identity_path = _resolve_absolute_path(local_configuration.identities_file, root_directory)
+    identity_name = project_data.identity
+    if identity_name is None:
+        identity_name = os.environ.get('CPPYTHON_IDENTITY', local_configuration.identity)
+    if not local_configuration.identities_enabled:
+        if identity_name is not None:
+            raise ConfigException('An identity cannot be selected while identities-enabled is false.')
+        return None
+    return select_identity(
+        identity_path,
+        identity_name,
+        required='identities_file' in local_configuration.model_fields_set,
+    )
+
+
 def resolve_cppython(
     local_configuration: CPPythonLocalConfiguration,
     global_configuration: CPPythonGlobalConfiguration,
@@ -145,6 +166,8 @@ def resolve_cppython(
     modified_install_path = _resolve_absolute_path(local_configuration.install_path, root_directory)
     modified_tool_path = _resolve_absolute_path(local_configuration.tool_path, root_directory)
     modified_build_path = _resolve_absolute_path(local_configuration.build_path, root_directory)
+
+    identity = _resolve_identity(local_configuration, project_data, root_directory)
 
     modified_provider_name = plugin_build_data.provider_name
     modified_generator_name = plugin_build_data.generator_name
@@ -200,6 +223,7 @@ def resolve_cppython(
         dependency_groups=dependency_groups,
         provider_data=provider_data,
         generator_data=generator_data,
+        identity=identity,
     )
     return cppython_data
 

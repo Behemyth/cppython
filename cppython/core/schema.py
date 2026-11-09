@@ -8,6 +8,7 @@ from packaging.requirements import Requirement
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic.types import DirectoryPath
 
+from cppython.core.identity import BuildIdentity
 from cppython.utility.generated import GeneratedFilePolicy
 from cppython.utility.plugin import Plugin as SynodicPlugin
 from cppython.utility.utility import TypeName
@@ -27,6 +28,7 @@ class ProjectData(CPPythonModel, extra='forbid'):
     generated_files: Annotated[
         GeneratedFilePolicy, Field(description='How plugins may change the files they generate into the project')
     ] = GeneratedFilePolicy.UPDATE
+    identity: Annotated[str | None, Field(description='Explicit build identity selected for this operation')] = None
 
 
 class ProjectConfiguration(CPPythonModel, extra='forbid'):
@@ -50,6 +52,7 @@ class ProjectConfiguration(CPPythonModel, extra='forbid'):
     generated_files: Annotated[
         GeneratedFilePolicy, Field(description='How plugins may change the files they generate into the project')
     ] = GeneratedFilePolicy.UPDATE
+    identity: Annotated[str | None, Field(description='Explicit build identity selected for this operation')] = None
 
     @field_validator('verbosity')
     @classmethod
@@ -128,6 +131,7 @@ class CPPythonData(CPPythonModel, extra='forbid'):
 
     provider_data: Annotated[dict[str, Any], Field(description='Resolved provider configuration data')]
     generator_data: Annotated[dict[str, Any], Field(description='Resolved generator configuration data')]
+    identity: BuildIdentity | None = None
 
     @field_validator('configuration_path', 'install_path', 'tool_path', 'build_path')
     @classmethod
@@ -348,6 +352,21 @@ class CPPythonLocalConfiguration(CPPythonModel, extra='forbid'):
             ' process will be generated.',
         ),
     ] = Path('build')
+
+    identities_file: Annotated[
+        Path,
+        Field(alias='identities-file', description='Path to the project build identity table'),
+    ] = Path('tool/identities.toml')
+
+    identities_enabled: Annotated[
+        bool,
+        Field(alias='identities-enabled', description='Enable identity-based dependency preparation'),
+    ] = True
+
+    identity: Annotated[
+        str | None,
+        Field(description='Default build identity; CLI and CPPYTHON_IDENTITY take precedence'),
+    ] = None
 
     providers: Annotated[
         dict[TypeName, ProviderData],

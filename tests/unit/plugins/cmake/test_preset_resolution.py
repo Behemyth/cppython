@@ -105,6 +105,26 @@ def test_matching_and_unknown_names_are_unchanged(index: PresetIndex) -> None:
     assert index.resolve("configure", "base") == "base"
 
 
+def test_cache_variable_inheritance_and_null_masking(tmp_path: Path) -> None:
+    """Cache variables merge by key, including typed values and explicit nulls."""
+    _write(
+        tmp_path / "CMakePresets.json",
+        {
+            "version": 10,
+            "configurePresets": [
+                {"name": "first", "cacheVariables": {"A": None, "B": {"type": "STRING", "value": "first"}}},
+                {"name": "second", "cacheVariables": {"A": "second", "C": "second"}},
+                {"name": "child", "inherits": ["first", "second"], "cacheVariables": {"D": "child"}},
+            ],
+        },
+    )
+    index = PresetIndex(tmp_path)
+    assert index.cache_variable("child", "A") is None
+    assert index.cache_variable("child", "B") == "first"
+    assert index.cache_variable("child", "C") == "second"
+    assert index.cache_variable("child", "D") == "child"
+
+
 def _cache(index: PresetIndex, preset: str, **entries: str) -> None:
     binary_dir = index.source_dir / "build" / preset
     binary_dir.mkdir(parents=True)

@@ -6,6 +6,7 @@ from typing import Any
 
 from cppython.builder import Builder
 from cppython.core.exception import ConfigException
+from cppython.core.plugin_schema.provider import InstallGroupHistory
 from cppython.core.resolution import resolve_model
 from cppython.core.schema import ProjectConfiguration, PyProject, SyncData
 from cppython.schema import API
@@ -35,11 +36,7 @@ class Project(API):
 
         # Early exit: if no CPPython configuration table, do nothing silently
         tool_data = pyproject_data.get("tool")
-        if (
-            not tool_data
-            or not isinstance(tool_data, dict)
-            or not tool_data.get("cppython")
-        ):
+        if not isinstance(tool_data, dict) or "cppython" not in tool_data or tool_data["cppython"] is None:
             return
 
         builder = Builder(project_configuration, self.logger)
@@ -145,6 +142,13 @@ class Project(API):
             self._data.plugins.provider.install(groups=groups)
 
         self._report_local_sources(self._data.plugins.provider.sync_local_sources())
+
+    def previous_install_groups(self) -> list[str] | None:
+        """Return the groups to preserve when repairing a prior dependency installation."""
+        provider = self._data.plugins.provider
+        if isinstance(provider, InstallGroupHistory):
+            return provider.previous_install_groups()
+        return None
 
     def _report_local_sources(self, lines: list[str]) -> None:
         """Show which local checkouts are in use, even when routine output is hidden."""

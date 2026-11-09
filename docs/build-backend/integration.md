@@ -46,7 +46,7 @@ Remove manual dependency fetching:
 FetchContent_Declare(fmt GIT_REPOSITORY ...)
 FetchContent_MakeAvailable(fmt)
 
-# After: Just find_package (Conan toolchain provides paths)
+# After: Just find_package (the provider supplies package paths)
 find_package(fmt REQUIRED)
 ```
 
@@ -80,10 +80,13 @@ For a standalone C++ development build, bootstrap the CLI separately:
 
 ```bash
 pdm install --no-self -G native
-pdm run cppython install [test]
-pdm run cppython configure --configuration default-release
-pdm run cppython build --configuration default-release
+pdm run cppython install [test] --configure
+pdm run cppython build
 ```
+
+These commands use the host default when the project supplies an identity
+table and matching presets. Otherwise, pass `--configuration` with a
+project-owned preset name.
 
 `install` and `update` only install or update dependencies by default. Use `--configure` to
 configure the standalone build tree afterward, and `--configuration` to select its configuration.
@@ -91,7 +94,7 @@ If a required configuration is missing, the combined command reports that depend
 installed or updated but the build tree was not configured:
 
 ```bash
-pdm run cppython install [test] --configure --configuration default-release
+pdm run cppython install [test] --configure --configuration windows-x64-msvc-multi-development
 ```
 
 ## Build Isolation
@@ -101,8 +104,8 @@ pdm run cppython install [test] --configure --configuration default-release
 `pip wheel .` and `pdm build` use isolated build environments. CPPython handles this by:
 
 1. Verifying C++ dependencies, installing missing dependencies, and verifying again
-2. Reading the provider-generated toolchain or native files from the source tree
-3. Passing absolute toolchain paths to scikit-build-core
+2. Reading the provider-generated dependency configuration from the source tree
+3. Passing dependency paths or a legacy toolchain to the selected backend
 
 ### Building from an sdist
 
@@ -214,7 +217,7 @@ If your repository contains both a Python extension and a standalone C++ project
 ```
 my_project/
 ├── CMakeLists.txt          # Standalone C++ build
-├── CMakePresets.json       # CPPython manages presets
+├── CMakePresets.json       # Project-owned presets
 ├── pyproject.toml          # Python extension config
 ├── src/
 │   ├── lib/                # C++ library
@@ -233,8 +236,9 @@ pip wheel .
 **Standalone C++ build** (uses CMakePresets):
 
 ```bash
-pdm run cppython install --configure --configuration default-release
-pdm run cppython build --configuration default-release
+pdm run cppython install --configure
+pdm run cppython build
 ```
 
-Both workflows share the same Conan-managed dependencies through CPPython's CMake preset integration.
+With an identity table and matching project-owned presets, both workflows share
+the same Conan-managed dependencies.

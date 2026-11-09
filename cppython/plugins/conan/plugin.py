@@ -6,8 +6,11 @@ installation, and synchronization with other tools.
 """
 
 import contextlib
+import hashlib
 import io
+import json
 import os
+import shutil
 import tomllib
 from logging import Logger, getLogger
 from pathlib import Path
@@ -39,6 +42,7 @@ from cppython.plugins.cmake.resolution import verify_cmake_tool
 from cppython.plugins.cmake.schema import CMakeSyncData, EffectiveCMakeTool
 from cppython.plugins.conan import local
 from cppython.plugins.conan.builder import Builder
+from cppython.plugins.conan.identity import ConanIdentityProfile, resolve_identity_profile
 from cppython.plugins.conan.local import LocalPackage, LocalSourceError
 from cppython.plugins.conan.resolution import (
     resolve_conan_data,
@@ -50,6 +54,7 @@ from cppython.plugins.meson.schema import MesonSyncData
 from cppython.utility.exception import (
     InstallationVerificationError,
     NotSupportedError,
+    ProviderConfigurationError,
     ProviderInstallationError,
 )
 from cppython.utility.generated import GeneratedFileError, GeneratedFilePolicy
@@ -71,6 +76,19 @@ class ConanProvider(Provider):
         self.group_data: ProviderPluginGroupData = group_data
         self.core_data: CorePluginData = core_data
         self.data: ConanData = resolve_conan_data(configuration_data, core_data)
+        identity = core_data.cppython_data.identity
+        if identity is not None:
+            required_types = set(identity.dependency_build_types.values())
+            missing_types = required_types - set(self.data.build_types)
+            if missing_types:
+                raise ProviderConfigurationError(
+                    "conan",
+                    f"Identity '{identity.name}' requires dependency build types {', '.join(sorted(missing_types))} "
+                    "that are absent from the configured build-types.",
+                    "build-types",
+                )
+            self.data.build_types = [build_type for build_type in self.data.build_types if build_type in required_types]
+        self._identity_profile: ConanIdentityProfile | None = None
 
         self.builder = Builder()
         # Initialize ConanAPI once and reuse it
@@ -160,6 +178,9 @@ class ConanProvider(Provider):
         """
         operation = "update" if update else "install"
         logger = getLogger("cppython.conan")
+        ready_file = self._identity_ready_file()
+        if ready_file is not None:
+            ready_file.unlink(missing_ok=True)
 
         try:
             # Setup environment and generate conanfile
@@ -173,9 +194,11 @@ class ConanProvider(Provider):
         include_test = bool(groups) and "test" in groups
 
         packages = self._local_packages()
-        build_path = self.core_data.cppython_data.build_path
+        build_path = self._local_build_path()
 
         try:
+            if ready_file is not None:
+                self._clear_identity_generators()
             build_types = self.data.build_types
             for build_type in build_types:
                 self._editables = local.editables(packages, build_path, build_type)
@@ -192,6 +215,19 @@ class ConanProvider(Provider):
             self._editables = EditablePackages()
 
         local.write_stamp(build_path, packages, self.data.build_types, groups)
+        if ready_file is not None:
+            ready_file.parent.mkdir(parents=True, exist_ok=True)
+            ready_file.write_text(json.dumps(self._identity_installation(groups), indent=2) + "\n", encoding="utf-8")
+
+    def _clear_identity_generators(self) -> None:
+        """Remove only the identity's previous Conan-generated metadata."""
+        folder = self._conan_output_folder(self.data.build_types[0]) / "generators"
+        if folder.is_symlink() or folder.is_junction():
+            raise ProviderInstallationError("conan", f"Refusing to replace linked generators directory: {folder}")
+        if folder.exists():
+            if not folder.is_dir():
+                raise ProviderInstallationError("conan", f"Conan generators path is not a directory: {folder}")
+            shutil.rmtree(folder)
 
     def _local_packages(self) -> list[LocalPackage]:
         """The user's selected local checkouts that apply to this project, dependencies first.
@@ -280,11 +316,12 @@ class ConanProvider(Provider):
         """
         self.builder.generate_conanfile(package.path, self._local_generation_data(package))
 
-        folder = local.output_folder(self.core_data.cppython_data.build_path, build_type, package.name)
+        folder = local.output_folder(self._local_build_path(), build_type, package.name)
         command_args = ["install", str(package.conanfile), "--output-folder", str(folder), "--build", "missing"]
         if update:
             command_args.append("--update")
         command_args.extend(["-c", "tools.graph:skip_test=True"])
+        command_args.extend(self._identity_args())
         command_args.extend(self._settings_args(build_type))
         command_args.extend(["-c", "&:tools.cmake.cmakedeps:new=will_break_next"])
         command_args.extend(["-c", "tools.cmake.cmaketoolchain:generator=Ninja Multi-Config"])
@@ -317,7 +354,7 @@ class ConanProvider(Provider):
         Returns:
             One line per local checkout in use, or a note that published packages are used
         """
-        build_path = self.core_data.cppython_data.build_path
+        build_path = self._local_build_path()
         packages, managed = self._local_selection()
         stamp = local.read_stamp(build_path)
         current = local.signature(packages, self.data.build_types)
@@ -333,6 +370,33 @@ class ConanProvider(Provider):
             return ["local sources: none apply to this project; using published packages"]
         return []
 
+    def previous_install_groups(self) -> list[str] | None:
+        """Restore the successful install's group selection during automatic repair."""
+        stamp = local.read_stamp(self._local_build_path())
+        if stamp is None:
+            stamp_path = local.stamp_path(self._local_build_path())
+            ready_file = self._identity_ready_file()
+            if stamp_path.exists() or (ready_file is not None and ready_file.exists()):
+                raise ProviderConfigurationError(
+                    "conan",
+                    f"The previous dependency group selection is missing or invalid ({stamp_path}). "
+                    "Run 'cppython install' with the desired groups.",
+                )
+            return None
+        groups = stamp.get("groups")
+        if groups is None:
+            return None
+        if not isinstance(groups, list) or not all(isinstance(group, str) and group for group in groups):
+            raise ProviderConfigurationError("conan", "The recorded dependency group selection is invalid.")
+        missing = set(groups) - set(self.core_data.cppython_data.dependency_groups)
+        if missing:
+            raise ProviderConfigurationError(
+                "conan",
+                f"Previously installed dependency groups no longer exist: {', '.join(sorted(missing))}. "
+                "Run 'cppython install' with the desired groups.",
+            )
+        return groups
+
     def build_local_sources(self, build_type: str | None = None) -> None:
         """Incrementally build each local checkout's build tree, dependencies first.
 
@@ -343,7 +407,7 @@ class ConanProvider(Provider):
         build_types = [build_type] if build_type else self.data.build_types
         for selected_type in build_types:
             for package in packages:
-                folder = local.output_folder(self.core_data.cppython_data.build_path, selected_type, package.name)
+                folder = local.output_folder(self._local_build_path(), selected_type, package.name)
                 if not (folder / "CMakeCache.txt").is_file():
                     raise InstallationVerificationError("conan", [f"local {package.name} build tree ({folder})"])
                 self._logger.info("Building local %s (%s)", package.name, selected_type)
@@ -420,6 +484,64 @@ class ConanProvider(Provider):
             args.extend(["-s", f"build_type={build_type}"])
         return args
 
+    def _local_build_path(self) -> Path:
+        build_path = self.core_data.cppython_data.build_path
+        identity = self.core_data.cppython_data.identity
+        return build_path / identity.name if identity else build_path
+
+    def _conan_output_folder(self, build_type: str) -> Path:
+        identity = self.core_data.cppython_data.identity
+        if identity is not None:
+            return self.core_data.cppython_data.build_path / identity.name / "conan"
+        return self.core_data.cppython_data.build_path / "conan" / build_type
+
+    def _identity_ready_file(self) -> Path | None:
+        if self.core_data.cppython_data.identity is None:
+            return None
+        return self._conan_output_folder(self.data.build_types[0]) / ".cppython-installed.json"
+
+    def _selected_identity_profile(self) -> ConanIdentityProfile:
+        identity = self.core_data.cppython_data.identity
+        if identity is None:
+            raise ProviderConfigurationError("conan", "No build identity is selected.")
+        if self._identity_profile is None:
+            self._identity_profile = resolve_identity_profile(identity, self.data.settings, self.data.conf)
+        return self._identity_profile
+
+    def _identity_args(self) -> list[str]:
+        if self.core_data.cppython_data.identity is None:
+            return ConanIdentityProfile(settings={}, conf=self.data.conf).arguments()
+        return self._selected_identity_profile().arguments()
+
+    def _identity_installation(self, groups: list[str] | None) -> dict[str, object]:
+        identity = self.core_data.cppython_data.identity
+        if identity is None:
+            raise ProviderConfigurationError("conan", "No build identity is selected.")
+        profile = self._selected_identity_profile()
+        cppython = self.core_data.cppython_data
+        root = self.core_data.project_data.project_root
+        recipes = {
+            name: hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            for name in ("conanfile.py", "conanfile_base.py")
+            for path in (root / name,)
+        }
+        return {
+            "version": 4,
+            "identity": identity.name,
+            "build_types": self.data.build_types,
+            "settings": {**profile.settings, **self.data.settings},
+            "conf": profile.conf,
+            "conan_home": str(Path(self._conan_api.home_folder).resolve()),
+            "dependencies": sorted(str(requirement) for requirement in cppython.dependencies),
+            "groups": groups,
+            "dependency_groups": {
+                name: sorted(str(requirement) for requirement in requirements)
+                for name, requirements in cppython.dependency_groups.items()
+            },
+            "local_sources": local.signature(self._local_packages(), self.data.build_types),
+            "recipes": recipes,
+        }
+
     def _cmake_program_args(self) -> list[str]:
         """Return Conan configuration for the inspected CMake executable."""
         if self._cmake_tool:
@@ -451,8 +573,7 @@ class ConanProvider(Provider):
         # Build conan install command arguments
         command_args = ["install", str(conanfile_path)]
 
-        # Keep each build type's CMake package paths isolated for multi-config consumers.
-        output_folder = self.core_data.cppython_data.build_path / "conan" / build_type
+        output_folder = self._conan_output_folder(build_type)
         command_args.extend(["--output-folder", str(output_folder)])
 
         # Add build missing flag
@@ -465,6 +586,7 @@ class ConanProvider(Provider):
         if not include_test:
             command_args.extend(["-c", "tools.graph:skip_test=True"])
 
+        command_args.extend(self._identity_args())
         command_args.extend(self._settings_args(build_type))
         # Enable CMakeConfigDeps (the modern CMake config-mode generator) for the consumer only;
         # dependencies built from source keep the CMakeDeps their recipes are tested with
@@ -501,13 +623,39 @@ class ConanProvider(Provider):
             InstallationVerificationError: If expected artifacts are missing
         """
         missing: list[str] = []
+        if (ready_file := self._identity_ready_file()) is not None:
+            stamp = local.read_stamp(self._local_build_path())
+            groups = stamp.get("groups") if stamp is not None else None
+            valid_groups = groups is None or (
+                isinstance(groups, list) and all(isinstance(group, str) and group for group in groups)
+            )
+            if stamp is None or not valid_groups:
+                missing.append(f"dependency group selection record ({local.stamp_path(self._local_build_path())})")
+            try:
+                installation = json.loads(ready_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                missing.append(f"identity installation record ({ready_file})")
+            else:
+                if valid_groups and installation != self._identity_installation(groups):
+                    missing.append(
+                        f"current identity and compiler installation "
+                        f"(dependencies or recipes may have changed; {ready_file})"
+                    )
+
         for build_type in self.data.build_types:
-            generators_path = self.core_data.cppython_data.build_path / "conan" / build_type / "generators"
+            generators_path = self._conan_output_folder(build_type) / "generators"
             cmake_toolchain = generators_path / "conan_toolchain.cmake"
             meson_native = generators_path / "conan_meson_native.ini"
 
             if not generators_path.is_dir():
                 missing.append(f"generators directory ({generators_path})")
+            elif (
+                self.core_data.cppython_data.identity is not None
+                and self.core_data.cppython_data.generator_name == "cmake"
+            ):
+                paths_file = generators_path / "conan_cmakedeps_paths.cmake"
+                if not paths_file.is_file():
+                    missing.append(f"CMake dependency paths ({paths_file})")
             elif not cmake_toolchain.exists() and not meson_native.exists():
                 missing.append(
                     f"toolchain files in {generators_path} (expected conan_toolchain.cmake or conan_meson_native.ini)"
@@ -591,7 +739,10 @@ class ConanProvider(Provider):
             self._cmake_binary = str(consumer.data.cmake_binary.resolve())
             self._cmake_tool = consumer.data.cmake_tool
 
-        return self._create_cmake_sync_data()
+        sync_data = self._create_cmake_sync_data()
+        if isinstance(consumer, CMakeGenerator):
+            sync_data.cmake_binary = consumer.data.cmake_binary
+        return sync_data
 
     def _create_cmake_sync_data(self) -> CMakeSyncData:
         """Creates CMake synchronization data with Conan toolchain configuration.
@@ -600,6 +751,14 @@ class ConanProvider(Provider):
             CMakeSyncData configured for Conan integration
         """
         build_path = self.core_data.cppython_data.build_path
+        identity = self.core_data.cppython_data.identity
+        if identity is not None:
+            generators_path = self._conan_output_folder(self.data.build_types[0]) / "generators"
+            return CMakeSyncData(
+                provider_name=TypeName("conan"),
+                dependency_file=generators_path / "conan_cmakedeps_paths.cmake",
+                dependency_ready_file=self._identity_ready_file(),
+            )
         toolchain_files = {
             build_type: build_path / "conan" / build_type / "generators" / "conan_toolchain.cmake"
             for build_type in self.data.build_types
@@ -620,8 +779,13 @@ class ConanProvider(Provider):
         Returns:
             MesonSyncData configured for Conan integration
         """
+        if self.core_data.cppython_data.identity is not None:
+            raise NotSupportedError(
+                "Identity-based Meson dependency preparation is not yet supported. "
+                "Use the legacy non-identity configuration until the Meson handoff is validated."
+            )
         build_type = self.data.build_types[0]
-        generators_path = self.core_data.cppython_data.build_path / "conan" / build_type / "generators"
+        generators_path = self._conan_output_folder(build_type) / "generators"
 
         native_file = generators_path / "conan_meson_native.ini"
         cross_file = generators_path / "conan_meson_cross.ini"
@@ -707,6 +871,7 @@ class ConanProvider(Provider):
         # needed for consuming C++ modules across package boundaries
         command_args.extend(["-c", "tools.cmake.cmaketoolchain:generator=Ninja Multi-Config"])
 
+        command_args.extend(self._identity_args())
         command_args.extend(self._settings_args(build_type))
 
         command_args.extend(self._cmake_program_args())

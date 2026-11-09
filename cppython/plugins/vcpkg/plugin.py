@@ -116,6 +116,11 @@ class VcpkgProvider(Provider):
             if sync_type == CMakeSyncData:
                 return self._create_cmake_sync_data()
             if sync_type == MesonSyncData:
+                if self.core_data.cppython_data.identity is not None:
+                    raise NotSupportedError(
+                        'Identity-based Meson dependency preparation is not yet supported. '
+                        'Use the legacy non-identity configuration until the Meson handoff is validated.'
+                    )
                 return self._create_meson_sync_data()
 
         raise NotSupportedError('OOF')

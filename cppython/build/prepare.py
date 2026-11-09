@@ -105,7 +105,7 @@ class BuildPreparation:
                 sync_data = project.prepare_build()
             except InstallationVerificationError:
                 self.logger.info('CPPython: Installing missing C++ dependencies')
-                project.install()
+                project.install(groups=project.previous_install_groups())
                 sync_data = project.prepare_build()
 
             if sync_data:

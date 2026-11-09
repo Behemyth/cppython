@@ -153,7 +153,7 @@ class TestProject:
         pyproject = PyProject(project=pep621, tool=tool_data)
 
         with caplog.at_level(logging.WARNING):
-            project = Project(project_configuration, pyproject.model_dump(by_alias=True))
+            project = Project(project_configuration, pyproject.model_dump(by_alias=True, exclude_unset=True))
 
         # We don't want to have the log of the calling tool polluted with any default logging
         assert len(caplog.records) == 0
@@ -195,7 +195,7 @@ class TestPrepareBuild:
         tool_data = ToolData(cppython=cppython_config)
         pyproject = PyProject(project=pep621, tool=tool_data)
 
-        return Project(project_configuration, pyproject.model_dump(by_alias=True))
+        return Project(project_configuration, pyproject.model_dump(by_alias=True, exclude_unset=True))
 
     def test_prepare_build_calls_sync_and_verify(self, tmp_path: Path, mocker: MockerFixture) -> None:
         """prepare_build() should call sync and verify_installed, not install.
@@ -217,6 +217,15 @@ class TestPrepareBuild:
         sync_spy.assert_called_once()
         verify_spy.assert_called_once()
         install_spy.assert_not_called()
+
+    def test_group_history_is_an_optional_provider_capability(self, tmp_path: Path, mocker: MockerFixture) -> None:
+        """Existing providers remain usable without implementing group-history support."""
+        project = self._create_enabled_project(tmp_path, mocker)
+        provider = project._data.plugins.provider  # noqa: SLF001
+        assert project.previous_install_groups() is None
+
+        mocker.patch.object(provider, 'previous_install_groups', return_value=['test'], create=True)
+        assert project.previous_install_groups() == ['test']
 
     def test_prepare_build_returns_none_when_disabled(self, tmp_path: Path) -> None:
         """prepare_build() should return None for a disabled project.

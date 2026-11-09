@@ -141,4 +141,5 @@ def resolve_conan_data(data: dict[str, Any], core_data: CorePluginData) -> Conan
         profile_dir=profile_dir,
         build_types=parsed_data.build_types,
         settings=parsed_data.settings,
+        conf=parsed_data.conf,
     )

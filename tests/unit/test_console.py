@@ -25,6 +25,24 @@ class TestConsole:
         monkeypatch.chdir(tmp_path)
         runner.invoke(app, [])
 
+    @staticmethod
+    def test_global_identity_reaches_project_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+        """One explicit identity applies to the selected command."""
+        selected: list[str | None] = []
+
+        @contextmanager
+        def session_project(context: typer.Context) -> Any:
+            configuration = context.find_object(ConsoleConfiguration)
+            assert configuration is not None
+            selected.append(configuration.project_configuration.identity)
+            yield type('ProjectStub', (), {'install': lambda self, groups=None: None})()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+        result = runner.invoke(app, ['--identity', 'linux-x64-clang-libcxx', 'install'])
+
+        assert result.exit_code == 0
+        assert selected == ['linux-x64-clang-libcxx']
+
 
 class TestParseGroupsArgument:
     """Tests for the _parse_groups_argument helper function"""

@@ -56,6 +56,26 @@ class PresetIndex:
                 return value
         return None
 
+    def cache_variable(self, name: str, key: str) -> Any:
+        """Return one inherited configure cache variable, respecting preset precedence."""
+        _, value = self._cache_variable(name, key)
+        return value
+
+    def _cache_variable(self, name: str, key: str) -> tuple[bool, Any]:
+        preset = self._presets["configure"].get(name)
+        if preset is None:
+            return False, None
+        variables = preset.get("cacheVariables", {})
+        if key in variables:
+            value = variables[key]
+            return True, value.get("value") if isinstance(value, dict) else value
+        parents = preset.get("inherits", [])
+        for parent in [parents] if isinstance(parents, str) else parents:
+            found, value = self._cache_variable(parent, key)
+            if found:
+                return True, value
+        return False, None
+
     def _usable(self, kind: PresetKind, name: str) -> bool:
         preset = self._presets[kind].get(name)
         return preset is not None and not preset.get("hidden", False)

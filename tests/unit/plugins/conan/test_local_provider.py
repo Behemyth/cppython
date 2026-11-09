@@ -30,6 +30,7 @@ def _provider(tmp_path: Path, packages: list[LocalPackage], managed: bool = True
         _install_dependencies=install,
         _local_selection=lambda: (packages, managed),
         _local_packages=lambda: packages,
+        _local_build_path=lambda: tmp_path / 'build',
         _logger=getLogger('test.conan'),
     )
 

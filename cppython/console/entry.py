@@ -214,6 +214,10 @@ def main(
         ),
     ] = 0,
     debug: Annotated[bool, typer.Option()] = False,
+    identity: Annotated[
+        str | None,
+        typer.Option(help="Build identity to use instead of CPPYTHON_IDENTITY or the host default"),
+    ] = None,
 ) -> None:
     """entry_point group for the CLI commands
 
@@ -221,6 +225,7 @@ def main(
         context: The typer context
         verbose: The verbosity level
         debug: Debug mode
+        identity: Optional explicit build identity
     """
     if context.invoked_subcommand in _PROJECTLESS_COMMANDS:
         return
@@ -228,7 +233,7 @@ def main(
     path = _find_pyproject_file()
 
     project_configuration = ProjectConfiguration(
-        verbosity=verbose, debug=debug, project_root=path, version=None
+        verbosity=verbose, debug=debug, project_root=path, version=None, identity=identity
     )
 
     context.obj = ConsoleConfiguration(project_configuration=project_configuration)

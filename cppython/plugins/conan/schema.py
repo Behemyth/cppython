@@ -7,7 +7,7 @@ provide structured configuration and data needed by the Conan Provider.
 
 import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 
@@ -318,6 +318,7 @@ class ConanData(CPPythonModel):
     profile_dir: Path
     build_types: list[str]
     settings: dict[str, str] = {}
+    conf: dict[str, Any] = {}
 
 
 class ConanfileGenerationData(CPPythonModel):
@@ -371,5 +372,12 @@ class ConanConfiguration(CPPythonModel):
             description="Conan settings passed to every install and create as `-s:a key=value` (host and build "
             "contexts), overriding the detected profiles. Use it to build dependencies and their tools for the "
             'project\'s language standard, e.g. {"compiler.cppstd" = "23"}.',
+        ),
+    ] = {}
+    conf: Annotated[
+        dict[str, Any],
+        Field(
+            description="Conan configuration passed to both host and build contexts. "
+            "Explicit values override identity-derived configuration when compatible with the selected compiler.",
         ),
     ] = {}

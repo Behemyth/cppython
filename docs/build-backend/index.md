@@ -7,11 +7,18 @@ CPPython provides a PEP 517 build backend that wraps [scikit-build-core](https:/
 The `cppython.build` backend:
 
 1. Verifies native dependencies, installs any missing dependencies, and verifies again
-2. Extracts the generated toolchain file
-3. Injects `CMAKE_TOOLCHAIN_FILE` into scikit-build-core
+2. Gets the provider's generated dependency configuration
+3. Passes dependency search paths or a legacy toolchain to scikit-build-core
 4. Delegates the actual wheel building to scikit-build-core
 
 The same preparation runs for source checkouts and extracted sdists. Build hooks do not configure the standalone build tree; scikit-build-core or meson-python configures its own package build. A prior `cppython install` is optional and does not configure the standalone tree by default.
+
+On a fresh build, automatic preparation installs the base dependencies, not optional
+dependency groups. If the CMake project enables tests by default, either prepare its
+test group first or disable tests through that project's build settings. For Conan
+identities, an automatic repair preserves the groups from the last successful install
+and rechecks the local-source selection. If a previously selected group no longer
+exists, select the desired groups explicitly with `cppython install`.
 
 ## Quick Start
 
@@ -91,7 +98,9 @@ cmake.build-type = "Release"
 wheel.packages = ["src/my_package"]
 ```
 
-CPPython only injects `CMAKE_TOOLCHAIN_FILE` - all other scikit-build-core settings remain under your control.
+For identity-based CMake + Conan builds, CPPython composes the provider's
+search-path include with your existing top-level includes and leaves your
+toolchain in place. Non-identity providers may supply a legacy toolchain.
 
 ## How It Works
 
@@ -108,29 +117,27 @@ pip wheel . / pdm build
 │ 2. Initialize CPPython Project      │
 │ 3. Verify artifacts; install       │
 │    missing dependencies; reverify  │
-│ 4. Extract toolchain file path      │
-│ 5. Inject CMAKE_TOOLCHAIN_FILE      │
+│ 4. Read provider dependency data    │
+│ 5. Compose CMake search paths       │
 └──────────────┬──────────────────────┘
                │
                ▼
 ┌─────────────────────────────────────┐
 │      scikit_build_core.build        │
 ├─────────────────────────────────────┤
-│ 1. Configure CMake with toolchain   │
+│ 1. Configure CMake with deps        │
 │ 2. Build extension module           │
 │ 3. Package into wheel               │
 └─────────────────────────────────────┘
 ```
 
-### Toolchain Injection
+### Dependency search paths
 
-The provider (e.g., Conan) generates a toolchain file containing paths to all installed dependencies. CPPython extracts this path and passes it to scikit-build-core via:
-
-```
-cmake.define.CMAKE_TOOLCHAIN_FILE=/path/to/conan_toolchain.cmake
-```
-
-This allows CMake's `find_package()` to locate all CPPython-managed dependencies.
+For an identity-based Conan build, the provider generates CMake package search
+paths under `build/<identity>/conan`. CPPython adds the paths file to
+`CMAKE_PROJECT_TOP_LEVEL_INCLUDES` for the package build, after any
+user-supplied includes. A user-supplied `CMAKE_TOOLCHAIN_FILE` remains in
+effect. Non-identity providers can continue to supply a legacy toolchain.
 
 ## Example Project
 

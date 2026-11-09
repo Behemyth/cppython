@@ -39,7 +39,7 @@ install-path = "~/.cppython"  # Default
 
 ### tool-path
 
-Local directory for CPPython-generated files (presets, etc.).
+Local directory for CPPython's project tooling files.
 
 ```toml
 [tool.cppython]
@@ -60,6 +60,34 @@ build-path = "build"  # Default
 
 - **Type**: Path
 - **Default**: `build`
+
+For an identity-based CMake project with a custom build path, set the absolute
+`SYNODIC_DEPENDENCIES_ROOT` CMake cache variable to the same directory.
+
+### identities-file and identity
+
+CPPython reads the neutral identity table at `tool/identities.toml` by default.
+Set `identities-file` to use another project-relative or absolute path. Choose
+an identity with `cppython --identity <name>`, `CPPYTHON_IDENTITY`, or
+`identity` in project configuration, in that order. Otherwise, CPPython selects
+the unambiguous default for the current host. Explicit unknown identities,
+missing explicitly configured tables, and ambiguous host defaults fail.
+Projects without the default table retain their existing non-identity behavior.
+
+```toml
+[tool.cppython]
+identities-file = "tool/identities.toml"
+# identity = "windows-x64-msvc"
+```
+
+The selected identity must match the identity in the CMake preset. For a
+non-default preset, select its identity explicitly before preparing it.
+The identity-based handoff currently supports CMake with Conan. Meson and
+vcpkg use their legacy non-identity integrations until their identity handoffs
+are validated; they are not silently treated as CMake search-path providers.
+To use those legacy integrations with a project that contains an identity
+table, set `identities-enabled = false` under `[tool.cppython]`. An explicit
+identity selection then fails rather than being ignored.
 
 ### dependencies
 
@@ -105,11 +133,14 @@ See [Conan Plugin Configuration](../plugins/conan/configuration.md) for details.
 
 ```toml
 [tool.cppython.generators.cmake]
-preset_file = "CMakePresets.json"  # Default
-configuration_name = "default"      # Default
 cmake_binary = "C:/Tools/CMake/bin/cmake.exe"  # Optional explicit executable
 minimum-version = "4.5.0rc1"        # Optional project requirement
 ```
+
+The project owns `CMakePresets.json` and any included preset files. CPPython
+reads them but does not create or rewrite them. The old `preset_file` and
+`configuration_name` options remain accepted for compatibility; they no
+longer control preset generation.
 
 CPPython validates the selected executable by querying its version and recording a SHA-256 fingerprint. Selection order is `CMAKE_BINARY`, then `cmake_binary`, then the CMake installed by CPPython's `cmake` extra (which Porringer/PDM installs). `PATH` is never consulted. If both explicit selections are set, they must resolve to the same executable. Invalid, conflicting, changed, or under-versioned selections fail instead of silently falling back. If no CMake is selected, CMake and CTest commands fail and ask you to sync the `cmake` extra or set `CMAKE_BINARY`. CTest is resolved beside the selected CMake binary so that the tools come from the same distribution.
 
@@ -125,6 +156,17 @@ Remove-Item Env:CMAKE_BINARY
 
 Until a CMake 4.5 wheel is published, use this override to bridge to a locally installed 4.5 release candidate. Keep it local: it does not update `PATH` or change the project's tracked configuration.
 
+For a persistent machine-local selection, put the executable in the ignored
+`.cppython.toml` at the project root:
+
+```toml
+[generators.cmake]
+cmake_binary = "C:/Tools/CMake/bin/cmake.exe"
+```
+
+This setting affects CPPython operations. Select the same executable separately
+for direct CMake commands and IDE integrations.
+
 ## scikit-build-core Passthrough
 
 All `[tool.scikit-build]` options are passed directly to scikit-build-core:
@@ -137,17 +179,19 @@ wheel.packages = ["src/my_package"]
 logging.level = "WARNING"
 ```
 
-CPPython only adds:
-
-- `cmake.define.CMAKE_TOOLCHAIN_FILE` (from provider)
-
-All other settings are untouched.
+For identity-based CMake + Conan builds, CPPython adds the provider's
+search-path file to `CMAKE_PROJECT_TOP_LEVEL_INCLUDES` while preserving the
+effective user includes and toolchain. Legacy non-identity providers may still
+supply a toolchain file. The selected CMake is also used by scikit-build-core;
+an incompatible `CMAKE_EXECUTABLE` override fails.
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `CMAKE_TOOLCHAIN_FILE` | Overrides CPPython's injected toolchain (user takes precedence) |
+| `CPPYTHON_IDENTITY` | Selects a build identity when no CLI identity is given |
+| `CMAKE_BINARY` | Selects the CMake executable used by CPPython and the CMake build backend |
+| `CMAKE_EXECUTABLE` | scikit-build-core override; must match CPPython's selected CMake |
 | `CONAN_HOME` | Conan cache location |
 
 ## Example: Full Configuration
@@ -182,8 +226,6 @@ dependencies = [
 test = ["gtest>=1.14.0", "benchmark>=1.8.0"]
 
 [tool.cppython.generators.cmake]
-preset_file = "CMakePresets.json"
-configuration_name = "default"
 
 [tool.cppython.providers.conan]
 ```

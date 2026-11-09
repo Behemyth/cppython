@@ -5,8 +5,13 @@ underlying build backend (scikit-build-core for CMake, meson-python for Meson)
 after running CPPython's preparation workflow.
 """
 
+import contextlib
 import logging
+import os
+import shlex
+import tempfile
 import tomllib
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -15,8 +20,11 @@ import mesonpy
 from scikit_build_core import build as skbuild
 
 from cppython.build.prepare import BuildPreparationResult, prepare_build
+from cppython.plugins.cmake.resolution import CMakeToolResolutionError
 from cppython.plugins.cmake.schema import CMakeSyncData
 from cppython.plugins.meson.schema import MesonSyncData
+from cppython.utility.cmake import bracket_path
+from cppython.utility.msvc import developer_environment
 
 logger = logging.getLogger('cppython.build')
 
@@ -169,6 +177,99 @@ def _prepare_and_get_result(
     return result, settings
 
 
+@contextlib.contextmanager
+def _environment(overrides: Mapping[str, str] | None) -> Iterator[None]:
+    if not overrides:
+        yield
+        return
+    previous = {key: os.environ.get(key) for key in overrides}
+    os.environ.update(overrides)
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+@contextlib.contextmanager
+def _cmake_backend_environment(sync_data: CMakeSyncData) -> Iterator[None]:
+    """Compose the provider's dependency include after all user CMake arguments."""
+    compiler_environment = developer_environment()
+    if compiler_environment is not None:
+        compiler_environment = {
+            key: value
+            for key, value in compiler_environment.items()
+            if not key.upper().startswith(('CMAKE_', 'SKBUILD_', 'CPPYTHON_', 'CONAN_'))
+        }
+    with _environment(compiler_environment):
+        selected_cmake = sync_data.cmake_binary
+        configured_cmake = os.environ.get('CMAKE_EXECUTABLE')
+        if (
+            selected_cmake is not None
+            and configured_cmake
+            and Path(configured_cmake).resolve() != selected_cmake.resolve()
+        ):
+            raise CMakeToolResolutionError(
+                'CMAKE_EXECUTABLE conflicts with the CMake selected by CPPython. '
+                'Set CMAKE_EXECUTABLE and CMAKE_BINARY to the same executable.'
+            )
+        cmake_environment = {'CMAKE_EXECUTABLE': str(selected_cmake)} if selected_cmake is not None else None
+        with _environment(cmake_environment), _cmake_dependency_environment(sync_data):
+            yield
+
+
+@contextlib.contextmanager
+def _cmake_dependency_environment(sync_data: CMakeSyncData) -> Iterator[None]:
+    if sync_data.dependency_file is None:
+        yield
+    else:
+        dependency = (Path.cwd() / sync_data.dependency_file).resolve()
+        if not dependency.is_file():
+            raise FileNotFoundError(f'CMake dependency search file not found: {dependency}')
+        ready = sync_data.dependency_ready_file
+        if ready is not None:
+            ready = (Path.cwd() / ready).resolve()
+            if not ready.is_file():
+                raise FileNotFoundError(f'CMake dependencies are not ready: {ready}')
+
+        content = ''
+        if ready is not None:
+            content += (
+                f'if(NOT EXISTS {bracket_path(ready)})\n'
+                '  message(FATAL_ERROR "CPPython dependencies are incomplete; run porr install.")\n'
+                'endif()\n'
+            )
+        include = bracket_path(dependency)
+        content += (
+            f'list(FIND CMAKE_PROJECT_TOP_LEVEL_INCLUDES {include} _cppython_dependency_index)\n'
+            'if(_cppython_dependency_index EQUAL -1)\n'
+            f'  list(APPEND CMAKE_PROJECT_TOP_LEVEL_INCLUDES {include})\n'
+            'endif()\n'
+            'set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_PROJECT_TOP_LEVEL_INCLUDES}" '
+            'CACHE STRING "Top-level project includes" FORCE)\n'
+        )
+
+        with tempfile.TemporaryDirectory(prefix='cppython-pep517-') as directory:
+            initial_cache = Path(directory) / 'dependencies.cmake'
+            initial_cache.write_text(content, encoding='utf-8')
+            args = f'{os.environ.get("CMAKE_ARGS", "")} -C {shlex.quote(initial_cache.as_posix())}'.strip()
+            with _environment({'CMAKE_ARGS': args}):
+                yield
+
+
+@contextlib.contextmanager
+def _prepared_build(config_settings: dict[str, Any] | None) -> Iterator[tuple[BuildPreparationResult, dict[str, Any]]]:
+    result, settings = _prepare_and_get_result(config_settings)
+    if isinstance(result.sync_data, CMakeSyncData):
+        with _cmake_backend_environment(result.sync_data):
+            yield result, settings
+    else:
+        yield result, settings
+
+
 def _is_meson_build(result: BuildPreparationResult) -> bool:
     """Determine if the build should use meson-python based on sync data.
 
@@ -206,8 +307,8 @@ def build_wheel(
 ) -> str:
     """Build a wheel, running CPPython preparation first."""
     logger.info('CPPython: Starting wheel build')
-    result, settings = _prepare_and_get_result(config_settings)
-    return _get_backend(_is_meson_build(result)).build_wheel(wheel_directory, settings, metadata_directory)
+    with _prepared_build(config_settings) as (result, settings):
+        return _get_backend(_is_meson_build(result)).build_wheel(wheel_directory, settings, metadata_directory)
 
 
 def build_sdist(
@@ -226,8 +327,8 @@ def build_editable(
 ) -> str:
     """Build an editable wheel, running CPPython preparation first."""
     logger.info('CPPython: Starting editable build')
-    result, settings = _prepare_and_get_result(config_settings)
-    return _get_backend(_is_meson_build(result)).build_editable(wheel_directory, settings, metadata_directory)
+    with _prepared_build(config_settings) as (result, settings):
+        return _get_backend(_is_meson_build(result)).build_editable(wheel_directory, settings, metadata_directory)
 
 
 def prepare_metadata_for_build_wheel(

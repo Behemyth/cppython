@@ -16,7 +16,7 @@ CPPython resolves dependencies and generates build configuration through three k
 | Kind | Purpose | Built-in plugins |
 | --- | --- | --- |
 | Provider | Installs and publishes C++ dependencies | [Conan](plugins/conan/index.md), vcpkg |
-| Generator | Produces build-tool configuration (presets, native files) | CMake, Meson |
+| Generator | Reads build configuration and synchronizes provider-generated files | CMake, Meson |
 | SCM | Detects project version from source control | Git |
 
 ## Quick start

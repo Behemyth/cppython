@@ -4,11 +4,15 @@ from typing import Any
 
 import pytest
 
+from cppython.core.identity import BuildIdentity
 from cppython.plugins.meson.plugin import MesonGenerator
 from cppython.plugins.meson.schema import (
     MesonConfiguration,
+    MesonSyncData,
 )
 from cppython.test.pytest.contracts import GeneratorUnitTestContract
+from cppython.utility.exception import NotSupportedError
+from cppython.utility.utility import TypeName
 
 pytest_plugins = ['tests.fixtures.meson']
 
@@ -57,3 +61,18 @@ class TestMesonGenerator(GeneratorUnitTestContract[MesonGenerator]):
         plugin.build('development')
 
         setup_spy.assert_called_once_with('development')
+
+    @staticmethod
+    def test_identity_handoff_is_explicitly_unsupported(plugin: MesonGenerator) -> None:
+        """Meson cannot silently reuse the legacy, non-identity native-file layout."""
+        plugin.core_data.cppython_data.identity = BuildIdentity(
+            name='linux-x64-clang-libcxx',
+            os='linux',
+            arch='x64',
+            compiler='clang',
+            standard_library='libc++',
+            configurations=['Debug'],
+            dependency_build_types={'Debug': 'Debug'},
+        )
+        with pytest.raises(NotSupportedError, match='Identity-based Meson'):
+            plugin.sync(MesonSyncData(provider_name=TypeName('test')))

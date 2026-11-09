@@ -15,7 +15,7 @@ A transparent Python management solution for C++ dependencies and building.
 ## Features
 
 - Resolve and install C++ dependencies through pluggable providers (Conan, vcpkg).
-- Generate and sync build-tool configuration (CMake presets, Meson native files) from a single `[tool.cppython]` table.
+- Read project-owned CMake presets and synchronize provider-generated dependency files; support Meson native files.
 - Detect project versions from source control through pluggable SCM plugins (Git).
 - Inspect plugin configuration and discovered build targets with `cppython info` and `cppython list`.
 

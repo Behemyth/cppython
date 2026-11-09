@@ -18,6 +18,7 @@ from cppython.core.schema import (
 from cppython.plugins.meson.builder import Builder
 from cppython.plugins.meson.resolution import resolve_meson_data
 from cppython.plugins.meson.schema import MesonSyncData
+from cppython.utility.exception import NotSupportedError
 from cppython.utility.subprocess import run_subprocess
 
 logger = getLogger('cppython.meson')
@@ -83,6 +84,11 @@ class MesonGenerator(Generator):
         Args:
             sync_data: The input data
         """
+        if self.core_data.cppython_data.identity is not None:
+            raise NotSupportedError(
+                'Identity-based Meson dependency preparation is not yet supported. '
+                'Use the legacy non-identity configuration until the Meson handoff is validated.'
+            )
         match sync_data:
             case MesonSyncData():
                 project_root = self.core_data.project_data.project_root

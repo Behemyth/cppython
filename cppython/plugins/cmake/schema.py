@@ -133,8 +133,11 @@ class CMakePresets(CPPythonModel, extra='allow'):
 class CMakeSyncData(SyncData):
     """The CMake sync data"""
 
+    cmake_binary: Path | None = None
     toolchain_file: Path | None = None
     toolchain_files: dict[str, Path] = Field(default_factory=dict)
+    dependency_file: Path | None = None
+    dependency_ready_file: Path | None = None
 
 
 class EffectiveCMakeTool(CPPythonModel):
@@ -164,16 +167,15 @@ class CMakeConfiguration(CPPythonModel):
     preset_file: Annotated[
         Path,
         Field(
-            description='The CMakePreset.json file that will be managed by CPPython. Will'
-            " be searched for the given 'configuration_name'",
+            description='Legacy path retained for compatibility. CPPython reads project-owned presets '
+            'from the project root and never rewrites them.',
         ),
     ] = Path('CMakePresets.json')
     configuration_name: Annotated[
         str,
         Field(
-            description='The CMake configuration preset to look for and override inside the given `preset_file`. '
-            'Additional configurations will be added using this option as the base. For example, given "default", '
-            '"default-release" will also be written'
+            description='Legacy preset-generation setting retained for compatibility; '
+            'CPPython no longer creates or modifies presets.',
         ),
     ] = 'default'
     cmake_binary: Annotated[

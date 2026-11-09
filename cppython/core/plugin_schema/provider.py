@@ -56,6 +56,15 @@ class SyncProducer(Protocol):
 
 
 @runtime_checkable
+class InstallGroupHistory(Protocol):
+    """Optional provider capability for preserving dependency groups during automatic repair."""
+
+    def previous_install_groups(self) -> list[str] | None:
+        """Return dependency groups selected by the last successful install, when available."""
+        ...
+
+
+@runtime_checkable
 class Provider(DataPlugin, SyncProducer, Protocol):
     """Abstract type to be inherited by CPPython Provider plugins"""
 

@@ -33,6 +33,9 @@ jobs:
       native-install: *install
       configuration-ref: &configuration-ref f2a4e069c97998a36782daaeb8566c43a20b2065
       native-mode: command
+      native-command: &native-command >-
+        pdm run test -qq -o log_cli=false
+        --junitxml="build/native-check/$NATIVE_IDENTITY/junit-pytest.xml"
       native-identities: &identities >-
         ["windows-x64-msvc", "windows-arm64-msvc", "linux-x64-clang-libcxx",
          "linux-arm64-clang-libcxx", "macos-arm64-clang-libcxx"]
@@ -46,6 +49,7 @@ jobs:
       native-install: *install
       configuration-ref: *configuration-ref
       native-mode: command
+      native-command: *native-command
       native-identities: *identities
       targeted: true
       target-identity: ${{ inputs.identity }}

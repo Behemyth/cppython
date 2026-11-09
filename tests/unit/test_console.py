@@ -1,5 +1,6 @@
 """Tests the typer interface type"""
 
+import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
@@ -188,11 +189,13 @@ class TestInstallAndUpdate:
     def test_install_and_update_expose_configuration_option(command: str) -> None:
         """Both existing setup commands should accept a named configuration."""
         result = runner.invoke(app, [command, '--help'])
+        # CI terminals enable Rich styling, which splits option names with ANSI escapes.
+        output = re.sub(r'\x1b\[[0-9;]*m', '', result.stdout)
 
         assert result.exit_code == 0
-        assert '--configuration' in result.stdout
-        assert '--configure' in result.stdout
-        assert '--no-configure' in result.stdout
+        assert '--configuration' in output
+        assert '--configure' in output
+        assert '--no-configure' in output
 
     @staticmethod
     @pytest.mark.parametrize('command', ['install', 'update'])

@@ -254,11 +254,14 @@ class TestBaseFilePolicy:
 
     def test_locked_does_not_create_files(self, tmp_path: Path) -> None:
         """LOCKED reports a missing base file instead of creating anything."""
+        # Autouse fixtures may populate tmp_path, so observe a dedicated project directory.
+        project = tmp_path / 'project'
+        project.mkdir()
         with pytest.raises(GeneratedFileError) as error:
-            Builder().generate_conanfile(tmp_path, _data('boost'), GeneratedFilePolicy.LOCKED)
+            Builder().generate_conanfile(project, _data('boost'), GeneratedFilePolicy.LOCKED)
 
         assert error.value.state is GeneratedFileState.MISSING
-        assert not any(tmp_path.iterdir())
+        assert not any(project.iterdir())
 
     def test_legacy_base_is_migrated(self, tmp_path: Path) -> None:
         """A base file from a generator without headers counts as untouched."""

@@ -495,6 +495,10 @@ class ConanProvider(Provider):
             return self.core_data.cppython_data.build_path / identity.name / "conan"
         return self.core_data.cppython_data.build_path / "conan" / build_type
 
+    def preparation_outputs(self) -> tuple[Path, ...]:
+        """Return the same output folders passed to Conan installation."""
+        return tuple(dict.fromkeys(self._conan_output_folder(build_type) for build_type in self.data.build_types))
+
     def _identity_ready_file(self) -> Path | None:
         if self.core_data.cppython_data.identity is None:
             return None

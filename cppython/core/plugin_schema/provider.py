@@ -1,6 +1,7 @@
 """Provider data plugin definitions"""
 
 from abc import abstractmethod
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic.types import DirectoryPath
@@ -61,6 +62,15 @@ class InstallGroupHistory(Protocol):
 
     def previous_install_groups(self) -> list[str] | None:
         """Return dependency groups selected by the last successful install, when available."""
+        ...
+
+
+@runtime_checkable
+class PreparationOutputs(Protocol):
+    """Optional capability exposing the provider's actual dependency output directories."""
+
+    def preparation_outputs(self) -> tuple[Path, ...]:
+        """Return output directories used by dependency installation."""
         ...
 
 

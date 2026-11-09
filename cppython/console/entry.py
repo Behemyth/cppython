@@ -1,6 +1,7 @@
 """A Typer CLI for CPPython interfacing"""
 
 import contextlib
+import os
 import subprocess
 from collections.abc import Generator
 from importlib.metadata import entry_points
@@ -15,6 +16,7 @@ from rich.syntax import Syntax
 from cppython.configuration import ConfigurationLoader
 from cppython.console.local import local_app
 from cppython.console.schema import ConsoleConfiguration
+from cppython.core.preparation import PREPARATION_REPORT_ENV, write_preparation_report
 from cppython.core.schema import PluginReport, ProjectConfiguration
 from cppython.project import Project
 from cppython.utility.exception import (
@@ -341,6 +343,10 @@ def install(
 
     with _session_project(context) as project:
         project.install(groups=group_list)
+        if report_path := os.environ.get(PREPARATION_REPORT_ENV):
+            metadata = project.preparation_metadata()
+            if metadata is not None:
+                write_preparation_report(Path(report_path), metadata)
         if not configure:
             return
         try:

@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from cppython.builder import Builder
+from cppython.core.identity import BuildIdentity
 from cppython.core.resolution import PluginBuildData
 from cppython.core.schema import (
     CPPythonLocalConfiguration,
@@ -61,6 +62,31 @@ class TestData:
             data: Fixture for the mocked data class
         """
         data.sync()
+
+    @staticmethod
+    @pytest.mark.parametrize('has_outputs', [False, True])
+    def test_preparation_metadata(data: Data, monkeypatch: pytest.MonkeyPatch, has_outputs: bool) -> None:
+        """Metadata uses the already-resolved selection and provider-owned locations."""
+        cppython = data._core_data.cppython_data
+        cppython.identity = BuildIdentity(
+            name='explicit-selection',
+            os='windows',
+            arch='x64',
+            compiler='msvc',
+            standard_library='msvc',
+            configurations=['Debug'],
+            dependency_build_types={'Debug': 'Debug'},
+        )
+        cppython.provider_data['password'] = 'never-emit-this'
+        outputs = (cppython.build_path / 'provider-chosen-output',)
+        if has_outputs:
+            monkeypatch.setattr(data.plugins.provider, 'preparation_outputs', lambda: outputs, raising=False)
+        metadata = data.preparation_metadata()
+        assert metadata.identity == 'explicit-selection'
+        assert metadata.backend == data.plugins.generator.name()
+        assert metadata.provider == data.plugins.provider.name()
+        assert metadata.dependency_outputs == (outputs if has_outputs else None)
+        assert 'never-emit-this' not in metadata.model_dump_json()
 
     @staticmethod
     def test_named_plugin_configuration() -> None:

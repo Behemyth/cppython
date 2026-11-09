@@ -7,6 +7,7 @@ from typing import Any
 from cppython.builder import Builder
 from cppython.core.exception import ConfigException
 from cppython.core.plugin_schema.provider import InstallGroupHistory
+from cppython.core.preparation import PreparationMetadata
 from cppython.core.resolution import resolve_model
 from cppython.core.schema import ProjectConfiguration, PyProject, SyncData
 from cppython.schema import API
@@ -149,6 +150,10 @@ class Project(API):
         if isinstance(provider, InstallGroupHistory):
             return provider.previous_install_groups()
         return None
+
+    def preparation_metadata(self) -> PreparationMetadata | None:
+        """Return resolved native dependency metadata without running build or test operations."""
+        return self._data.preparation_metadata() if self._enabled else None
 
     def _report_local_sources(self, lines: list[str]) -> None:
         """Show which local checkouts are in use, even when routine output is hidden."""

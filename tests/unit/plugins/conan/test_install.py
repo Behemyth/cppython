@@ -43,6 +43,33 @@ class TestConanInstall(ProviderPluginTestMixin[ConanProvider]):
     """Tests for the Conan provider install functionality"""
 
     @staticmethod
+    @pytest.mark.parametrize('identity_mode', [False, True])
+    def test_preparation_outputs_use_install_locations(plugin: ConanProvider, identity_mode: bool) -> None:
+        """Reporting reuses Conan's own output-folder resolution and deduplicates identity folders."""
+        if identity_mode:
+            plugin.core_data.cppython_data.identity = BuildIdentity(
+                name='selected-native',
+                os='windows',
+                arch='x64',
+                compiler='msvc',
+                standard_library='msvc',
+                configurations=['Debug', 'Release'],
+                dependency_build_types={'Debug': 'Debug', 'Release': 'Release'},
+            )
+        else:
+            plugin.core_data.cppython_data.identity = None
+        plugin.data.build_types = ['Debug', 'Release']
+        outputs = plugin.preparation_outputs()
+        assert outputs == tuple(dict.fromkeys(plugin._conan_output_folder(kind) for kind in plugin.data.build_types))
+        if identity_mode:
+            assert outputs == (plugin.core_data.cppython_data.build_path / 'selected-native' / 'conan',)
+        else:
+            assert outputs == (
+                plugin.core_data.cppython_data.build_path / 'conan' / 'Debug',
+                plugin.core_data.cppython_data.build_path / 'conan' / 'Release',
+            )
+
+    @staticmethod
     @pytest.fixture(name="plugin_data", scope="session")
     def fixture_plugin_data(conan_plugin_data: dict[str, Any]) -> dict[str, Any]:
         """A required testing hook that allows data generation

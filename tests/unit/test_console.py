@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from cppython.console.entry import _parse_groups_argument, app, configure, install
 from cppython.console.schema import ConsoleConfiguration
+from cppython.core.preparation import PREPARATION_REPORT_ENV, PreparationMetadata
 from cppython.utility.exception import ConfigurationRequiredError
 from cppython.utility.generated import GeneratedFilePolicy
 
@@ -116,6 +117,95 @@ class TestParseGroupsArgument:
 
 class TestInstallAndUpdate:
     """Tests install and update command composition."""
+
+    @staticmethod
+    @pytest.mark.parametrize('report', [False, True])
+    @pytest.mark.parametrize('failure', [False, True])
+    def test_preparation_metadata_is_opt_in_and_only_after_success(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, report: bool, failure: bool
+    ) -> None:
+        """A project-owned preparation reports only selected metadata, not build success."""
+        calls: list[str] = []
+        metadata = PreparationMetadata(
+            identity='explicit-selection',
+            backend='cmake',
+            provider='conan',
+            dependency_outputs=(tmp_path / 'actual-conan-output',),
+        )
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                assert groups == ['test']
+                calls.append('install')
+                if failure:
+                    raise RuntimeError('private-provider-error')
+
+            def preparation_metadata(self) -> PreparationMetadata:
+                calls.append('metadata')
+                return metadata
+
+            def configure(self, configuration: str | None = None) -> None:
+                pytest.fail('Preparation metadata must not configure, build or test')
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+        report_path = tmp_path / 'preparation-report.json'
+        if report:
+            monkeypatch.setenv(PREPARATION_REPORT_ENV, str(report_path))
+        else:
+            monkeypatch.delenv(PREPARATION_REPORT_ENV, raising=False)
+        result = runner.invoke(app, ['install', '[test]'])
+        assert result.exit_code == (1 if failure else 0)
+        if report and not failure:
+            assert calls == ['install', 'metadata']
+            assert PreparationMetadata.model_validate_json(report_path.read_text(encoding='utf-8')) == metadata
+            assert not result.stdout
+        else:
+            assert calls == ['install']
+            assert not report_path.exists()
+        assert 'private-provider-error' not in result.stdout
+
+    @staticmethod
+    @pytest.mark.parametrize('bad_path', ['existing', 'missing-parent', 'relative'])
+    def test_preparation_report_write_errors_are_not_swallowed(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path, bad_path: str
+    ) -> None:
+        """A reporting failure stays a CLI failure, without changing installation calls."""
+        calls: list[str] = []
+
+        class ProjectStub:
+            def install(self, groups: list[str] | None = None) -> None:
+                calls.append('install')
+
+            def preparation_metadata(self) -> PreparationMetadata:
+                calls.append('metadata')
+                return PreparationMetadata(backend='cmake', provider='conan')
+
+        @contextmanager
+        def session_project(_context: Any) -> Any:
+            yield ProjectStub()
+
+        if bad_path == 'existing':
+            report_path = tmp_path / 'report.json'
+            report_path.write_text('existing-data', encoding='utf-8')
+        elif bad_path == 'missing-parent':
+            report_path = tmp_path / 'absent-parent' / 'report.json'
+        else:
+            report_path = Path('relative-report.json')
+        monkeypatch.setattr('cppython.console.entry._session_project', session_project)
+        monkeypatch.setenv(PREPARATION_REPORT_ENV, str(report_path))
+        result = runner.invoke(app, ['install'])
+        assert result.exit_code == 1
+        assert calls == ['install', 'metadata']
+        assert isinstance(result.exception, ValueError if bad_path == 'relative' else OSError)
+        if bad_path == 'existing':
+            assert report_path.read_text(encoding='utf-8') == 'existing-data'
+        else:
+            assert not report_path.exists()
+        assert not result.stdout
 
     @staticmethod
     def test_install_configures_after_install(monkeypatch: pytest.MonkeyPatch) -> None:

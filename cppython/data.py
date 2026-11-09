@@ -6,8 +6,9 @@ from logging import Logger
 from packaging.requirements import Requirement
 
 from cppython.core.plugin_schema.generator import Generator
-from cppython.core.plugin_schema.provider import Provider
+from cppython.core.plugin_schema.provider import PreparationOutputs, Provider
 from cppython.core.plugin_schema.scm import SCM
+from cppython.core.preparation import PreparationMetadata
 from cppython.core.schema import CoreData
 from cppython.utility.exception import PluginError
 
@@ -35,6 +36,17 @@ class Data:
     def plugins(self) -> Plugins:
         """The plugin data for CPPython"""
         return self._plugins
+
+    def preparation_metadata(self) -> PreparationMetadata:
+        """Project resolved selection and provider-owned output locations without configuration secrets."""
+        identity = self._core_data.cppython_data.identity
+        provider = self.plugins.provider
+        return PreparationMetadata(
+            identity=identity.name if identity is not None else None,
+            backend=self.plugins.generator.name(),
+            provider=provider.name(),
+            dependency_outputs=provider.preparation_outputs() if isinstance(provider, PreparationOutputs) else None,
+        )
 
     def set_active_groups(self, groups: list[str] | None) -> None:
         """Set the active dependency groups for the current operation.

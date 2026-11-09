@@ -1,6 +1,7 @@
 """Tests for applying local sources to Conan"""
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,36 @@ def test_configure_command_uses_conan_preset(tmp_path: Path) -> None:
         '-DCMAKE_BUILD_TYPE=Debug',
         '-DBUILD_TESTING=OFF',
     ]
+
+
+@pytest.mark.parametrize(('platform', 'expected_flags'), [('win32', 0x08000000), ('linux', 0)])
+def test_git_hides_windows_console_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, expected_flags: int
+) -> None:
+    """Git metadata queries only set Windows-specific subprocess flags on Windows."""
+    monkeypatch.setattr(local.sys, 'platform', platform)
+    monkeypatch.setattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000, raising=False)
+    calls: list[int] = []
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        flags = kwargs['creationflags']
+        assert isinstance(flags, int)
+        calls.append(flags)
+        return subprocess.CompletedProcess(command, 0, stdout='abc123\n', stderr='')
+
+    monkeypatch.setattr(local.subprocess, 'run', run)
+
+    assert local._git(tmp_path, 'rev-parse', '--short', 'HEAD') == 'abc123'
+    assert calls == [expected_flags]
+
+
+def test_git_reports_missing_windows_console_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A broken Windows subprocess implementation is not silently treated as a non-Windows host."""
+    monkeypatch.setattr(local.sys, 'platform', 'win32')
+    monkeypatch.delattr(subprocess, 'CREATE_NO_WINDOW', raising=False)
+
+    with pytest.raises(RuntimeError, match='CREATE_NO_WINDOW'):
+        local._git(tmp_path, 'status')
 
 
 def test_package_config(tmp_path: Path) -> None:

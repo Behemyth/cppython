@@ -1,5 +1,6 @@
 """Unit tests for Visual Studio developer environment discovery."""
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,32 @@ def test_not_needed_when_compiler_on_path(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert msvc.developer_environment() is None
+    msvc.developer_environment.cache_clear()
+
+
+@pytest.mark.parametrize(("machine", "arch"), [("AMD64", "amd64"), ("ARM64", "arm64")])
+def test_developer_environment_loads_visual_studio(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, machine: str, arch: str
+) -> None:
+    """Load the selected target architecture and return the captured environment."""
+    msvc.developer_environment.cache_clear()
+    devcmd = tmp_path / "Common7" / "Tools" / "VsDevCmd.bat"
+    devcmd.parent.mkdir(parents=True)
+    devcmd.touch()
+    monkeypatch.setattr(msvc.sys, "platform", "win32")
+    monkeypatch.setattr(msvc.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(msvc, "installation_path", lambda: tmp_path)
+    monkeypatch.setattr(msvc.platform, "machine", lambda: machine)
+    commands: list[str] = []
+
+    def run(command: str, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="PATH=compiler\nINCLUDE=headers\n", stderr="")
+
+    monkeypatch.setattr(msvc.subprocess, "run", run)
+
+    assert msvc.developer_environment() == {"PATH": "compiler", "INCLUDE": "headers"}
+    assert commands == [f'"{devcmd}" -arch={arch} -host_arch={arch} -no_logo && set']
     msvc.developer_environment.cache_clear()
 
 

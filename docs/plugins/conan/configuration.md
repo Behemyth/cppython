@@ -19,4 +19,17 @@ Conan installs the dependency build types required by the identity into
 Development uses Release dependencies. A Debug-only identity does not install
 Release dependencies. `build-types` must include every type the identity
 requires. Projects without an identity table keep the legacy per-build-type
-layout.
+layout. The project-owned presets in `examples/conan_cmake/simple` and
+`examples/conan_cmake/library` remain provider-neutral. When using their
+legacy, non-identity configuration, pass the desired generated Conan
+toolchain to CMake explicitly after installing dependencies. For example:
+
+```bash
+pdm run cppython install
+cmake --preset default-release \
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/build/conan/Release/generators/conan_toolchain.cmake"
+cmake --build --preset default-release
+```
+
+Identity-based projects can use the provider-neutral dependency shim instead,
+without occupying `CMAKE_TOOLCHAIN_FILE`.

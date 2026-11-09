@@ -68,6 +68,11 @@ def developer_environment() -> dict[str, str] | None:
     if sys.platform != "win32" or shutil.which("cl"):
         return None
 
+    return _load_developer_environment()
+
+
+def _load_developer_environment() -> dict[str, str] | None:
+    """Load the selected Visual Studio developer environment."""
     install = installation_path()
     if install is None:
         logger.debug("No Visual Studio installation with C++ tools found")

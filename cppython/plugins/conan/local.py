@@ -196,6 +196,12 @@ def checkout_summary(package: LocalPackage) -> str:
 
 
 def _git(path: Path, *args: str) -> str | None:
+    creationflags = 0
+    if sys.platform == 'win32':
+        if not hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            raise RuntimeError('Python does not provide the Windows CREATE_NO_WINDOW subprocess flag.')
+        creationflags = subprocess.CREATE_NO_WINDOW
+
     try:
         result = subprocess.run(
             ['git', '-C', str(path), *args],
@@ -203,7 +209,7 @@ def _git(path: Path, *args: str) -> str | None:
             text=True,
             timeout=10,
             check=False,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0,
+            creationflags=creationflags,
         )
     except OSError, subprocess.SubprocessError:
         return None

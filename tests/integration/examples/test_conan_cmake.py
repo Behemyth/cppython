@@ -4,6 +4,7 @@ This module contains integration tests for projects that use conan and CMake.
 The tests ensure that the projects build, configure, and execute correctly.
 """
 
+import os
 import subprocess
 import sys
 import tarfile
@@ -36,6 +37,16 @@ class TestConanCMake:
     """Test project variation of conan and CMake"""
 
     @staticmethod
+    def _cmake_binary() -> str:
+        """Select the configured executable, honoring the CI and local override."""
+        with Path('pyproject.toml').open('rb') as file:
+            data = tomllib.load(file)
+        configured = (
+            data.get('tool', {}).get('cppython', {}).get('generators', {}).get('cmake', {}).get('cmake_binary', 'cmake')
+        )
+        return os.environ.get('CMAKE_BINARY', configured)
+
+    @staticmethod
     def _create_project(skip_upload: bool = True) -> Project:
         """Create a project instance with common configuration."""
         project_root = Path.cwd()
@@ -51,14 +62,35 @@ class TestConanCMake:
         return Project(config, pyproject_data)
 
     @staticmethod
-    def _run_cmake_configure(cmake_binary: str) -> None:
+    def _list_project_presets(cmake_binary: str) -> bytes:
+        """Presets are available before preparation and remain owned by the project."""
+        contents = Path('CMakePresets.json').read_bytes()
+        assert b'conan' not in contents.lower()
+        assert b'vcpkg' not in contents.lower()
+        result = subprocess.run(
+            [cmake_binary, '--list-presets=configure'], capture_output=True, text=True, check=False
+        )
+        assert result.returncode == 0, f'CMake preset listing failed: {result.stderr}'
+        assert f'"{_cmake_preset}"' in result.stdout
+        assert '"default-debug"' in result.stdout
+        return contents
+
+    @staticmethod
+    def _run_cmake_configure(cmake_binary: str, preset: str = _cmake_preset, build_type: str = 'Release') -> None:
         """Run CMake configuration and assert success.
 
         Args:
             cmake_binary: Path or command name for the CMake binary to use
+            preset: Project-owned configure preset
+            build_type: Conan dependency build type for this legacy example
         """
+        toolchain = Path('build') / 'conan' / build_type / 'generators' / 'conan_toolchain.cmake'
+        assert toolchain.is_file(), f'Conan toolchain not found: {toolchain}'
         result = subprocess.run(
-            [cmake_binary, f'--preset={_cmake_preset}'], capture_output=True, text=True, check=False
+            [cmake_binary, f'--preset={preset}', f'-DCMAKE_TOOLCHAIN_FILE={toolchain.resolve()}'],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         assert result.returncode == 0, f'CMake configuration failed: {result.stderr}'
 
@@ -69,7 +101,9 @@ class TestConanCMake:
         Args:
             cmake_binary: Path or command name for the CMake binary to use
         """
-        result = subprocess.run([cmake_binary, '--build', 'build'], capture_output=True, text=True, check=False)
+        result = subprocess.run(
+            [cmake_binary, '--build', 'build', '--config', 'Release'], capture_output=True, text=True, check=False
+        )
         assert result.returncode == 0, f'CMake build failed: {result.stderr}'
 
     @staticmethod
@@ -116,26 +150,24 @@ class TestConanCMake:
     @staticmethod
     def test_simple(example_runner: CliRunner) -> None:
         """Simple project"""
-        # Read cmake_binary from the current pyproject.toml (we're in the example directory)
-        pyproject_path = Path.cwd() / 'pyproject.toml'
-        with pyproject_path.open('rb') as file:
-            pyproject_data = tomllib.load(file)
-
-        cmake_binary = (
-            pyproject_data.get('tool', {})
-            .get('cppython', {})
-            .get('generators', {})
-            .get('cmake', {})
-            .get('cmake_binary', 'cmake')
-        )
+        cmake_binary = TestConanCMake._cmake_binary()
+        original_presets = TestConanCMake._list_project_presets(cmake_binary)
 
         # Create project and install dependencies
         project = TestConanCMake._create_project(skip_upload=False)
         project.install()
+        assert Path('CMakePresets.json').read_bytes() == original_presets
 
         # Configure and verify build
         TestConanCMake._run_cmake_configure(cmake_binary)
         TestConanCMake._verify_build_artifacts()
+
+        for preset, build_type in (('default-release', 'Release'), ('default-debug', 'Debug')):
+            TestConanCMake._run_cmake_configure(cmake_binary, preset, build_type)
+            build = subprocess.run(
+                [cmake_binary, '--build', '--preset', preset], capture_output=True, text=True, check=False
+            )
+            assert build.returncode == 0, f'{preset} build failed: {build.stderr}'
 
         # Test publishing with skip_upload enabled
         publish_project = TestConanCMake._create_project(skip_upload=True)
@@ -145,22 +177,13 @@ class TestConanCMake:
     @_skip_modules_test
     def test_library(example_runner: CliRunner) -> None:
         """Test library creation and packaging workflow"""
-        # Read cmake_binary from the current pyproject.toml (we're in the example directory)
-        pyproject_path = Path.cwd() / 'pyproject.toml'
-        with pyproject_path.open('rb') as file:
-            pyproject_data = tomllib.load(file)
-
-        cmake_binary = (
-            pyproject_data.get('tool', {})
-            .get('cppython', {})
-            .get('generators', {})
-            .get('cmake', {})
-            .get('cmake_binary', 'cmake')
-        )
+        cmake_binary = TestConanCMake._cmake_binary()
+        original_presets = TestConanCMake._list_project_presets(cmake_binary)
 
         # Create project and install dependencies
         project = TestConanCMake._create_project(skip_upload=False)
         project.install()
+        assert Path('CMakePresets.json').read_bytes() == original_presets
 
         # Configure, build, and verify
         TestConanCMake._run_cmake_configure(cmake_binary)

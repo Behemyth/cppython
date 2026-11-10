@@ -200,7 +200,7 @@ class TestConanInstall(ProviderPluginTestMixin[ConanProvider]):
         assert plugin._local_build_path() == plugin.core_data.cppython_data.build_path / identity.name
         sync = plugin._create_cmake_sync_data()
         assert sync.toolchain_file is None
-        assert sync.dependency_file == expected / "generators" / "conan_cmakedeps_paths.cmake"
+        assert sync.dependency_file == expected / "search_paths.cmake"
         assert sync.dependency_ready_file == expected / ".cppython-installed.json"
 
     def test_identity_verification_requires_current_successful_install(
@@ -227,6 +227,13 @@ class TestConanInstall(ProviderPluginTestMixin[ConanProvider]):
         paths.touch()
 
         with pytest.raises(InstallationVerificationError, match="installation record"):
+            plugin.verify_installed()
+        plugin._install_dependencies(groups=["test"])
+        plugin.verify_installed()
+        search = plugin._conan_output_folder("Debug") / "search_paths.cmake"
+        assert plugin._create_cmake_sync_data().dependency_file == search
+        search.unlink()
+        with pytest.raises(InstallationVerificationError, match="dependency search file"):
             plugin.verify_installed()
         plugin._install_dependencies(groups=["test"])
         plugin.verify_installed()

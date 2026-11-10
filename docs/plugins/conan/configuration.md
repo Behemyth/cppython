@@ -33,3 +33,12 @@ cmake --build --preset default-release
 
 Identity-based projects can use the provider-neutral dependency shim instead,
 without occupying `CMAKE_TOOLCHAIN_FILE`.
+
+Conan installs a separate package for each build type. A dependency that ships
+its own CMake package files, as a C++ modules library does, describes only its
+own build type, so a multi-config project would import just one. For an
+identity-based build, CPPython writes a small CMake package for each such
+dependency under `build/<identity>/conan/packages`. It loads every installed
+build type, so each configuration links its matching binary. This covers
+package files that CMake's `install(EXPORT)` generated and needs CMake 3.25 or
+newer. Hand-written package files keep Conan's single selection.

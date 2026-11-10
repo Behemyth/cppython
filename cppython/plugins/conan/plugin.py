@@ -40,7 +40,7 @@ from cppython.local_sources.schema import Severity
 from cppython.plugins.cmake.plugin import CMakeGenerator
 from cppython.plugins.cmake.resolution import verify_cmake_tool
 from cppython.plugins.cmake.schema import CMakeSyncData, EffectiveCMakeTool
-from cppython.plugins.conan import local
+from cppython.plugins.conan import build_types, local
 from cppython.plugins.conan.builder import Builder
 from cppython.plugins.conan.identity import ConanIdentityProfile, resolve_identity_profile
 from cppython.plugins.conan.local import LocalPackage, LocalSourceError
@@ -216,11 +216,27 @@ class ConanProvider(Provider):
 
         local.write_stamp(build_path, packages, self.data.build_types, groups)
         if ready_file is not None:
+            self._write_identity_search_paths()
             ready_file.parent.mkdir(parents=True, exist_ok=True)
             ready_file.write_text(json.dumps(self._identity_installation(groups), indent=2) + "\n", encoding="utf-8")
 
+    def _write_identity_search_paths(self) -> None:
+        """Write the search file CMake includes, once Conan has installed every build type."""
+        output = self._conan_output_folder(self.data.build_types[0])
+        conan_paths = output / "generators" / "conan_cmakedeps_paths.cmake"
+        if not conan_paths.is_file():
+            return
+        try:
+            build_types.write_search_paths(conan_paths, output)
+        except OSError as e:
+            raise ProviderInstallationError("conan", f"Failed to write dependency search paths: {e}", e) from e
+
     def _clear_identity_generators(self) -> None:
         """Remove only the identity's previous Conan-generated metadata."""
+        try:
+            build_types.clear(self._conan_output_folder(self.data.build_types[0]))
+        except OSError as e:
+            raise ProviderInstallationError("conan", str(e), e) from e
         folder = self._conan_output_folder(self.data.build_types[0]) / "generators"
         if folder.is_symlink() or folder.is_junction():
             raise ProviderInstallationError("conan", f"Refusing to replace linked generators directory: {folder}")
@@ -530,7 +546,7 @@ class ConanProvider(Provider):
             for path in (root / name,)
         }
         return {
-            "version": 4,
+            "version": 5,
             "identity": identity.name,
             "build_types": self.data.build_types,
             "settings": {**profile.settings, **self.data.settings},
@@ -658,8 +674,11 @@ class ConanProvider(Provider):
                 and self.core_data.cppython_data.generator_name == "cmake"
             ):
                 paths_file = generators_path / "conan_cmakedeps_paths.cmake"
+                search_file = generators_path.parent / build_types.SEARCH_PATHS
                 if not paths_file.is_file():
                     missing.append(f"CMake dependency paths ({paths_file})")
+                elif not search_file.is_file():
+                    missing.append(f"CMake dependency search file ({search_file})")
             elif not cmake_toolchain.exists() and not meson_native.exists():
                 missing.append(
                     f"toolchain files in {generators_path} (expected conan_toolchain.cmake or conan_meson_native.ini)"
@@ -757,10 +776,9 @@ class ConanProvider(Provider):
         build_path = self.core_data.cppython_data.build_path
         identity = self.core_data.cppython_data.identity
         if identity is not None:
-            generators_path = self._conan_output_folder(self.data.build_types[0]) / "generators"
             return CMakeSyncData(
                 provider_name=TypeName("conan"),
-                dependency_file=generators_path / "conan_cmakedeps_paths.cmake",
+                dependency_file=self._conan_output_folder(self.data.build_types[0]) / build_types.SEARCH_PATHS,
                 dependency_ready_file=self._identity_ready_file(),
             )
         toolchain_files = {

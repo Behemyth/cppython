@@ -142,6 +142,11 @@ def _clang_profile(identity: BuildIdentity, environment: dict[str, str]) -> Cona
         link_flags = [f'-L{libcxx}', f'-Wl,-rpath,{libcxx}', f'-L{unwind}', '-lunwind']
         conf['tools.build:exelinkflags'] = link_flags
         conf['tools.build:sharedlinkflags'] = link_flags
+        # Clang's -print-file-name does not search lib/c++, so CMake cannot find the 'import std' manifest
+        # when it builds a dependency from source.
+        manifest = libcxx / 'libc++.modules.json'
+        if manifest.is_file():
+            conf['tools.cmake.cmaketoolchain:extra_variables'] = {'CMAKE_CXX_STDLIB_MODULES_JSON': str(manifest)}
 
     return ConanIdentityProfile(
         settings={'compiler': 'clang', 'compiler.version': versions.pop(), 'compiler.libcxx': 'libc++'},

@@ -1,5 +1,6 @@
 """Tests for identity-based Conan compiler and platform settings."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -60,6 +61,8 @@ def test_clang_settings_and_macos_link_flags(
     root = tmp_path / 'llvm'
     (root / 'lib' / 'c++').mkdir(parents=True)
     (root / 'lib' / 'unwind').mkdir(parents=True)
+    manifest = root / 'lib' / 'c++' / 'libc++.modules.json'
+    manifest.write_text('{}', encoding='utf-8')
     monkeypatch.setattr('cppython.plugins.conan.identity.platform.system', lambda: system)
     monkeypatch.setattr('cppython.plugins.conan.identity._environment', lambda: {})
     monkeypatch.setattr('cppython.plugins.conan.identity._find_compiler', lambda name, _env: root / 'bin' / name)
@@ -87,8 +90,18 @@ def test_clang_settings_and_macos_link_flags(
         ]
         assert profile.conf['tools.build:exelinkflags'] == flags
         assert profile.conf['tools.build:sharedlinkflags'] == flags
+        # Dependencies built from source need the manifest that Clang cannot locate in lib/c++
+        variables = {'CMAKE_CXX_STDLIB_MODULES_JSON': str(manifest)}
+        assert profile.conf['tools.cmake.cmaketoolchain:extra_variables'] == variables
+        assert f'tools.cmake.cmaketoolchain:extra_variables={json.dumps(variables, separators=(",", ":"))}' in (
+            profile.arguments()
+        )
+        manifest.unlink()
+        without = resolve_identity_profile(_identity(operating_system, architecture, 'clang', 'libc++'), {})
+        assert 'tools.cmake.cmaketoolchain:extra_variables' not in without.conf
     else:
         assert 'tools.build:exelinkflags' not in profile.conf
+        assert 'tools.cmake.cmaketoolchain:extra_variables' not in profile.conf
 
 
 def test_compiler_override_conflict_is_reported(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
